@@ -24,8 +24,7 @@ SparseMatrix<double> CotAlpha; // Matrix of cot(alpha_ij)
 SparseMatrix<double> CotBeta; // Matrix of cot(beta_ij)
 SparseMatrix<double> D; // Length of edges
 double dt; // time step
-MatrixXd Ainv; // Matrix of vertex area
-MatrixXd AinvVec; // Diagonal of vertex area
+MatrixXd Ainv; // Diagonal of vertex area // Ainv ou A ???
 SparseMatrix<double> L; // Laplace-Berltrami matrix
 
 SparseMatrix<double> SparseMatrixExplicit;
@@ -99,8 +98,8 @@ void vertexNormals(HalfedgeDS he) {
 		int i0 = he.getTarget(he.getOpposite(he.getEdge(i)));
 		int i1 = i;
 		int i2 = he.getTarget(he.getNext(he.getEdge(i)));
-		Vector3d u(V.row(i1)[0] - V.row(i0)[0], V.row(i1)[1] - V.row(i0)[1], V.row(i1)[2] - V.row(i0)[2]);
-		Vector3d v(V.row(i2)[0] - V.row(i1)[0], V.row(i2)[1] - V.row(i1)[1], V.row(i2)[2] - V.row(i1)[2]);
+		Vector3d u(V.row(i1) - V.row(i0));
+		Vector3d v(V.row(i2) - V.row(i1));
 		Vector3d w = u.cross(v);
 		w.normalize();
 		MatrixXd n = MatrixXd::Zero(1, 3);
@@ -128,8 +127,8 @@ void lib_vertexNormals() {
 		int i0 = F.row(i)[0];
 		int i1 = F.row(i)[1];
 		int i2 = F.row(i)[2];
-		Vector3d u(V.row(i1)[0] - V.row(i0)[0], V.row(i1)[1] - V.row(i0)[1], V.row(i1)[2] - V.row(i0)[2]);
-		Vector3d v(V.row(i2)[0] - V.row(i1)[0], V.row(i2)[1] - V.row(i1)[1], V.row(i2)[2] - V.row(i1)[2]);
+		Vector3d u(V.row(i1) - V.row(i0));
+		Vector3d v(V.row(i2) - V.row(i1));
 		Vector3d w = u.cross(v);
 		w.normalize();
 		MatrixXd n = MatrixXd::Zero(1, 3);
@@ -171,9 +170,9 @@ void computeAlphaBetaDdt(HalfedgeDS he) {
 		int j = he.getTarget(he.getOpposite(e)); // vertex before i
 		int k = he.getTarget(he.getOpposite(pe)); // vertex after i
 		for (int l = 0; l < vDCW; l++) {
-			Vector3d u(V.row(i)[0] - V.row(j)[0], V.row(i)[1] - V.row(j)[1], V.row(i)[2] - V.row(j)[2]);
-			Vector3d v(V.row(k)[0] - V.row(i)[0], V.row(k)[1] - V.row(i)[1], V.row(k)[2] - V.row(i)[2]);
-			Vector3d w(V.row(j)[0] - V.row(k)[0], V.row(j)[1] - V.row(k)[1], V.row(j)[2] - V.row(k)[2]);
+			Vector3d u(V.row(i) - V.row(j));
+			Vector3d v(V.row(k) - V.row(i));
+			Vector3d w(V.row(j) - V.row(k));
 			stackD.push_back(Eigen::Triplet<double>(i, j, u.norm()));
 			if (dt < u.norm())
 				dt = u.norm();
@@ -196,24 +195,22 @@ void computeAlphaBetaDdt(HalfedgeDS he) {
 }
 
 /**
-* Compute S (he)
+* Compute A (he)
 **/
 void computeA(HalfedgeDS he) {
 	std::cout << "Computing A..." << std::endl;
 	auto start = std::chrono::high_resolution_clock::now(); // for measuring time performances
-	Ainv = MatrixXd::Zero(he.sizeOfVertices(), he.sizeOfVertices());
-	AinvVec = MatrixXd::Zero(he.sizeOfVertices(), 1);
+	Ainv = MatrixXd::Zero(he.sizeOfVertices(), 1);
 	for (int i = 0; i < he.sizeOfVertices(); i++) {
 		int vDCW = vertexDegreeCCW(he, i);
 		int e = he.getEdge(i); // edge from x_j to x_i
 		int j = he.getTarget(he.getOpposite(e)); // vertex before i
 		for (int k = 0; k < vDCW; k++) {
-			Ainv(i, i) += D.coeffRef(i, j) * D.coeffRef(i, j) * (CotAlpha.coeffRef(i, j) + CotBeta.coeffRef(i, j));
+			Ainv(i) += D.coeffRef(i, j) * D.coeffRef(i, j) * (CotAlpha.coeffRef(i, j) + CotBeta.coeffRef(i, j));
 			e = he.getOpposite(he.getNext(e));
 			j = he.getTarget(he.getOpposite(e));
 		}
-		Ainv(i, i) = 8 / Ainv(i, i);
-		AinvVec(i) = 8 / Ainv(i, i);
+		Ainv(i) /= 8;
 	}
 	auto finish = std::chrono::high_resolution_clock::now();
 	std::chrono::duration<double> elapsed = finish - start;
@@ -254,7 +251,7 @@ void computeL(HalfedgeDS he) {
 void computeSparseMatrixExplicit() {
 	std::cout << "Computing SparseMatrixExplicit..." << std::endl;
 	auto start = std::chrono::high_resolution_clock::now(); // for measuring time performances
-	SparseMatrixExplicit = dt * AinvVec.asDiagonal() * L;
+	SparseMatrixExplicit = dt * Ainv.asDiagonal() * L;
 	auto finish = std::chrono::high_resolution_clock::now();
 	std::chrono::duration<double> elapsed = finish - start;
 	std::cout << "Computing time for SparseMatrixExplicit: " << elapsed.count() << " s\n";
@@ -266,7 +263,7 @@ void computeSparseMatrixExplicit() {
 void computeSolverImplicit() {
 	std::cout << "Computing SolverImplicit..." << std::endl;
 	auto start = std::chrono::high_resolution_clock::now(); // for measuring time performances
-	LeftSideImplicit = MatrixXd::Identity(AinvVec.rows(), AinvVec.rows()) - dt * AinvVec.asDiagonal() * L;
+	LeftSideImplicit = MatrixXd::Identity(Ainv.rows(), Ainv.rows()) - dt * Ainv.asDiagonal() * L;
 	SolverImplicit.compute(LeftSideImplicit);
 	auto finish = std::chrono::high_resolution_clock::now();
 	std::chrono::duration<double> elapsed = finish - start;
