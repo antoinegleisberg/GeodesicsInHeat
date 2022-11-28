@@ -20,17 +20,13 @@ MatrixXd V;
 MatrixXi F;
 
 MatrixXd X; // vector of vertices
-SparseMatrix<double> CotAlpha; // Matrix of cot(alpha_ij)
-SparseMatrix<double> CotBeta; // Matrix of cot(beta_ij)
-SparseMatrix<double> D; // Length of edges
+MatrixXd CotAlpha; // Matrix of cot(alpha_ij)
+MatrixXd CotBeta; // Matrix of cot(beta_ij)
+MatrixXd D; // Length of edges
 double dt; // time step
 MatrixXd Ainv; // Matrix of vertex area
 MatrixXd AinvVec; // Diagonal of vertex area
-SparseMatrix<double> L; // Laplace-Berltrami matrix
-
-SparseMatrix<double> SparseMatrixExplicit;
-SparseMatrix<double> LeftSideImplicit;
-SimplicialCholesky<SparseMatrix<double>> SolverImplicit;
+MatrixXd L; // Laplace-Berltrami matrix
 
 int nbSteps = 1000; // number of time steps between animations
 
@@ -160,9 +156,9 @@ void computeX(HalfedgeDS he) {
 void computeAlphaBetaDdt(HalfedgeDS he) {
 	std::cout << "Computing CotAlpha, CotBeta, D and dt..." << std::endl;
 	auto start = std::chrono::high_resolution_clock::now(); // for measuring time performances
-	std::vector<Eigen::Triplet<double>> stackCotAlpha{};
-	std::vector<Eigen::Triplet<double>> stackCotBeta{};
-	std::vector<Eigen::Triplet<double>> stackD{};
+	CotAlpha = MatrixXd::Zero(he.sizeOfVertices(), he.sizeOfVertices());
+	CotBeta = MatrixXd::Zero(he.sizeOfVertices(), he.sizeOfVertices());
+	D = MatrixXd::Zero(he.sizeOfVertices(), he.sizeOfVertices());
 	dt = 0;
 	for (int i = 0; i < he.sizeOfVertices(); i++) {
 		int vDCW = vertexDegreeCCW(he, i);
@@ -174,29 +170,23 @@ void computeAlphaBetaDdt(HalfedgeDS he) {
 			Vector3d u(V.row(i)[0] - V.row(j)[0], V.row(i)[1] - V.row(j)[1], V.row(i)[2] - V.row(j)[2]);
 			Vector3d v(V.row(k)[0] - V.row(i)[0], V.row(k)[1] - V.row(i)[1], V.row(k)[2] - V.row(i)[2]);
 			Vector3d w(V.row(j)[0] - V.row(k)[0], V.row(j)[1] - V.row(k)[1], V.row(j)[2] - V.row(k)[2]);
-			stackD.push_back(Eigen::Triplet<double>(i, j, u.norm()));
-			if (dt < u.norm())
-				dt = u.norm();
-			stackCotAlpha.push_back(Eigen::Triplet<double>(i, j, 1 / tan(acos(w.dot(-v) / (v.norm() + w.norm()))))); // angle at k
-			stackCotBeta.push_back(Eigen::Triplet<double>(i, k, 1 / tan(acos(u.dot(-w) / (u.norm() + w.norm()))))); // angle at j
+			D(i, j) = u.norm();
+			if (dt < D(i, j))
+				dt = D(i, j);
+			CotAlpha(i, j) = 1 / tan(acos(w.dot(-v) / (v.norm() + w.norm()))); // angle at k
+			CotBeta(i, k) = 1 / tan(acos(u.dot(-w) / (u.norm() + w.norm()))); // angle at j
 			j = he.getTarget(he.getOpposite(pe));
 			pe = he.getOpposite(he.getNext(pe));
 			k = he.getTarget(he.getOpposite(pe));
 		}
 	}
-	CotAlpha = SparseMatrix<double>(he.sizeOfVertices(), he.sizeOfVertices());
-	CotBeta = SparseMatrix<double>(he.sizeOfVertices(), he.sizeOfVertices());
-	D = SparseMatrix<double>(he.sizeOfVertices(), he.sizeOfVertices());
-	CotAlpha.setFromTriplets(stackCotAlpha.begin(), stackCotAlpha.end());
-	CotBeta.setFromTriplets(stackCotBeta.begin(), stackCotBeta.end());
-	D.setFromTriplets(stackD.begin(), stackD.end());
 	auto finish = std::chrono::high_resolution_clock::now();
 	std::chrono::duration<double> elapsed = finish - start;
 	std::cout << "Computing time for CotAlpha, CotBeta, D and dt: " << elapsed.count() << " s\n";
 }
 
 /**
-* Compute S (he)
+* Compute A (he)
 **/
 void computeA(HalfedgeDS he) {
 	std::cout << "Computing A..." << std::endl;
@@ -208,7 +198,7 @@ void computeA(HalfedgeDS he) {
 		int e = he.getEdge(i); // edge from x_j to x_i
 		int j = he.getTarget(he.getOpposite(e)); // vertex before i
 		for (int k = 0; k < vDCW; k++) {
-			Ainv(i, i) += D.coeffRef(i, j) * D.coeffRef(i, j) * (CotAlpha.coeffRef(i, j) + CotBeta.coeffRef(i, j));
+			Ainv(i, i) += D(i, j) * D(i, j) * (CotAlpha(i, j) + CotBeta(i, j));
 			e = he.getOpposite(he.getNext(e));
 			j = he.getTarget(he.getOpposite(e));
 		}
@@ -226,76 +216,32 @@ void computeA(HalfedgeDS he) {
 void computeL(HalfedgeDS he) {
 	std::cout << "Computing L..." << std::endl;
 	auto start = std::chrono::high_resolution_clock::now(); // for measuring time performances
-	std::vector<Eigen::Triplet<double>> stackL{};
+	L = MatrixXd::Zero(he.sizeOfVertices(), he.sizeOfVertices());
 	for (int i = 0; i < he.sizeOfVertices(); i++) {
 		int vDCW = vertexDegreeCCW(he, i);
 		int e = he.getEdge(i); // edge from x_j to x_i
 		int j = he.getTarget(he.getOpposite(e)); // vertex before i
-		double lii = 0;
 		for (int k = 0; k < vDCW; k++) {
-			double lij = (CotAlpha.coeffRef(i, j) + CotBeta.coeffRef(i, j)) / 2;
-			lii -= lij;
-			stackL.push_back(Eigen::Triplet<double>(i, j, lij));
+			L(i, j) = (CotAlpha(i, j) + CotBeta(i, j)) / 2;
+			L(i, i) -= L(i, j);
 			e = he.getOpposite(he.getNext(e));
 			j = he.getTarget(he.getOpposite(e));
 		}
-		stackL.push_back(Eigen::Triplet<double>(i, i, lii));
 	}
-	L = SparseMatrix<double>(he.sizeOfVertices(), he.sizeOfVertices());
-	L.setFromTriplets(stackL.begin(), stackL.end());
 	auto finish = std::chrono::high_resolution_clock::now();
 	std::chrono::duration<double> elapsed = finish - start;
 	std::cout << "Computing time for L: " << elapsed.count() << " s\n";
 }
 
 /**
-* Compute SparseMatrixExplicit
-**/
-void computeSparseMatrixExplicit() {
-	std::cout << "Computing SparseMatrixExplicit..." << std::endl;
-	auto start = std::chrono::high_resolution_clock::now(); // for measuring time performances
-	SparseMatrixExplicit = dt * AinvVec.asDiagonal() * L;
-	auto finish = std::chrono::high_resolution_clock::now();
-	std::chrono::duration<double> elapsed = finish - start;
-	std::cout << "Computing time for SparseMatrixExplicit: " << elapsed.count() << " s\n";
-}
-
-/**
-* Compute SolverImplicit
-**/
-void computeSolverImplicit() {
-	std::cout << "Computing SolverImplicit..." << std::endl;
-	auto start = std::chrono::high_resolution_clock::now(); // for measuring time performances
-	LeftSideImplicit = MatrixXd::Identity(AinvVec.rows(), AinvVec.rows()) - dt * AinvVec.asDiagonal() * L;
-	SolverImplicit.compute(LeftSideImplicit);
-	auto finish = std::chrono::high_resolution_clock::now();
-	std::chrono::duration<double> elapsed = finish - start;
-	std::cout << "Computing time for SolverImplicit: " << elapsed.count() << " s\n";
-}
-
-/**
-* Compute one time step (explicit)
+* Compute one time dtep
 **/
 void computeTimeStepExplicit() {
 	//std::cout << "Computing one time step..." << std::endl;
 	//auto start = std::chrono::high_resolution_clock::now(); // for measuring time performances
-	X += SparseMatrixExplicit * X;
+	X = X + dt * AinvVec.asDiagonal() * L * X;
 	//for (int i = 0; i < 8; i++)
-	//std::cout << X(i) << std::endl;
-	//auto finish = std::chrono::high_resolution_clock::now();
-	//std::chrono::duration<double> elapsed = finish - start;
-	//std::cout << "Computing time for one time step: " << elapsed.count() << " s\n";
-}
-
-/**
-* Compute one time step (implicit)
-**/
-void computeTimeStepImplicit() {
-	//std::cout << "Computing one time step..." << std::endl;
-	//auto start = std::chrono::high_resolution_clock::now(); // for measuring time performances
-	X = SolverImplicit.solve(X);
-	//for (int i = 0; i < 8; i++)
-	//std::cout << X(i) << std::endl;
+	//	std::cout << X(i) << std::endl;
 	//auto finish = std::chrono::high_resolution_clock::now();
 	//std::chrono::duration<double> elapsed = finish - start;
 	//std::cout << "Computing time for one time step: " << elapsed.count() << " s\n";
@@ -322,7 +268,6 @@ bool key_down(igl::opengl::glfw::Viewer& viewer, unsigned char key, int modifier
 		MatrixXd C;
 		igl::jet(X, true, C); // Assign per-vertex colors
 		viewer.data().set_colors(C); // Add per-vertex colors
-		return true;
 	}
 	case '6':
 	{
@@ -331,7 +276,6 @@ bool key_down(igl::opengl::glfw::Viewer& viewer, unsigned char key, int modifier
 		MatrixXd C;
 		igl::jet(X, true, C); // Assign per-vertex colors
 		viewer.data().set_colors(C); // Add per-vertex colors
-		return true;
 	}
 	case '7':
 	{
@@ -349,41 +293,7 @@ bool key_down(igl::opengl::glfw::Viewer& viewer, unsigned char key, int modifier
 			viewer.data().set_colors(C); // Add per-vertex colors
 			return false; };
 		viewer.launch(); // run the editor
-		return true;
-	}
-	case '8':
-	{
-		computeTimeStepImplicit();
-		MatrixXd C;
-		igl::jet(X, true, C); // Assign per-vertex colors
-		viewer.data().set_colors(C); // Add per-vertex colors
-		return true;
-	}
-	case '9':
-	{
-		for (int i = 0; i < nbSteps; i++)
-			computeTimeStepImplicit();
-		MatrixXd C;
-		igl::jet(X, true, C); // Assign per-vertex colors
-		viewer.data().set_colors(C); // Add per-vertex colors
-		return true;
-	}
-	case '0':
-	{
-		igl::opengl::glfw::Viewer viewer;
-		viewer.data().show_lines = false;
-		viewer.data().set_mesh(V, F);
-		viewer.data().set_normals(N_faces);
-		viewer.core().is_animating = true;
-		viewer.callback_pre_draw = [&](igl::opengl::glfw::Viewer&)->bool // run animation
-		{
-			for (int i = 0; i < nbSteps; i++)
-				computeTimeStepImplicit();
-			MatrixXd C;
-			igl::jet(X, true, C); // Assign per-vertex colors
-			viewer.data().set_colors(C); // Add per-vertex colors
-			return false; };
-		viewer.launch(); // run the editor
+
 	}
 	default: break;
 	}
@@ -391,16 +301,16 @@ bool key_down(igl::opengl::glfw::Viewer& viewer, unsigned char key, int modifier
 }
 
 // ------------ main program ----------------
-int main(int argc, char *argv[]) {
+int main(int argc, char* argv[]) {
 
-//	if(argc<2) {
-//		std::cout << "Error: input file required (.OFF)" << std::endl;
-//		return 0;
-//	}
-//	std::cout << "reading input file: " << argv[1] << std::endl;
+	//	if(argc<2) {
+	//		std::cout << "Error: input file required (.OFF)" << std::endl;
+	//		return 0;
+	//	}
+	//	std::cout << "reading input file: " << argv[1] << std::endl;
 
 	//igl::readOFF(argv[1], V, F);
- 	//igl::readOFF("../data/cube_open.off", V, F);	// 1 boundary
+	//igl::readOFF("../data/cube_open.off", V, F);	// 1 boundary
 	//igl::readOFF("../data/cube_tri.off", V, F);	// 0 boundary
 	//igl::readOFF("../data/star.off", V, F);		// 0 boundary
 	igl::readOFF("../data/sphere.off", V, F);
@@ -416,11 +326,11 @@ int main(int argc, char *argv[]) {
 	//igl::readOFF("../data/gargoyle_tri.off", V, F);
 
 	//print the number of mesh elements
-    std::cout << "Points: " << V.rows() << std::endl;
+	std::cout << "Points: " << V.rows() << std::endl;
 
-	HalfedgeBuilder* builder=new HalfedgeBuilder();
+	HalfedgeBuilder* builder = new HalfedgeBuilder();
 
-	HalfedgeDS he=builder->createMesh(V.rows(), F);
+	HalfedgeDS he = builder->createMesh(V.rows(), F);
 
 	// New for the project
 
@@ -430,16 +340,14 @@ int main(int argc, char *argv[]) {
 	std::cout << "dt: " << dt << std::endl;
 	computeA(he);
 	computeL(he);
-	computeSparseMatrixExplicit();
-	computeSolverImplicit();
 
 	// Compute normals
 
 	// Compute per-face normals
-	igl::per_face_normals(V,F,N_faces);
+	igl::per_face_normals(V, F, N_faces);
 
 	// Compute per-vertex normals
-	igl::per_vertex_normals(V,F,N_vertices);
+	igl::per_vertex_normals(V, F, N_vertices);
 
 	// Compute lib_per-vertex normals
 	lib_vertexNormals();
@@ -447,29 +355,26 @@ int main(int argc, char *argv[]) {
 	// Compute he_per-vertex normals
 	vertexNormals(he);
 
-///////////////////////////////////////////
+	///////////////////////////////////////////
 
-	// Plot the mesh with pseudocolors
+		// Plot the mesh with pseudocolors
 	igl::opengl::glfw::Viewer viewer; // create the 3d viewer
 
 	viewer.callback_key_down = &key_down;
 	viewer.data().show_lines = false;
 	viewer.data().set_mesh(V, F);
 	viewer.data().set_normals(N_faces);
-	std::cout<<
+	std::cout <<
 		"Press '1' for per-face normals calling pre-defined functions of LibiGL." << std::endl <<
 		"Press '2' for per-vertex normals calling pre-defined functions of LibiGL." << std::endl <<
 		"Press '3' for lib_per-vertex normals using face-vertex structure of LibiGL ." << std::endl <<
 		"Press '4' for HE_per-vertex normals using HalfEdge structure." << std::endl <<
-		"Press '5' to compute one steps (explicit)" << std::endl <<
-		"Press '6' to compute " << nbSteps << " steps (explicit)" << std::endl <<
-		"Press '7' to animate (explicit)" << std::endl <<
-		"Press '8' to compute one steps (implicit)" << std::endl <<
-		"Press '9' to compute " << nbSteps << " steps (implicit)" << std::endl <<
-		"Press '0' to animate (implicit)" << std::endl;
+		"Press '5' to compute one steps" << std::endl <<
+		"Press '6' to compute " << nbSteps << " steps" << std::endl <<
+		"Press '7' to animate" << std::endl;
 
 	MatrixXd C;
-	igl::jet(X,true,C); // Assign per-vertex colors
+	igl::jet(X, true, C); // Assign per-vertex colors
 	viewer.data().set_colors(C); // Add per-vertex colors
 
 	//viewer.core(0).align_camera_center(V, F); //not needed
