@@ -470,6 +470,8 @@ bool key_down(igl::opengl::glfw::Viewer& viewer, unsigned char key, int modifier
 // ------------ main program ----------------
 int main(int argc, char *argv[]) {
 
+	auto totalstart = std::chrono::high_resolution_clock::now(); // for measuring time performances
+
 //	if(argc<2) {
 //		std::cout << "Error: input file required (.OFF)" << std::endl;
 //		return 0;
@@ -516,12 +518,23 @@ int main(int argc, char *argv[]) {
 	// - 1000000 for sphere
 	// - 2000000 for nefertiti ?
 	// - 800 for star ?
+	std::cout << "Computing steps..." << std::endl;
+	auto start = std::chrono::high_resolution_clock::now(); // for measuring time performances
 	for (int i = 0; i < nbStepsTotal; i++)
 		computeTimeStepExplicit();
+	auto finish = std::chrono::high_resolution_clock::now();
+	std::chrono::duration<double> elapsed = finish - start;
+	std::cout << "Computing time for " << nbStepsTotal << " steps: " << elapsed.count() << " s\n";
 	computeX(he);
 	computeB(he);
 	computePhi();
 	setInitialU();
+
+	auto totalfinish = std::chrono::high_resolution_clock::now();
+	std::chrono::duration<double> totalelapsed = totalfinish - totalstart;
+	std::cout << "Total computing time from the loading of the data to the obtention of the geodesic distance:" << totalelapsed.count() << " s\n";
+	std::cout << "Including computing time for a total of " << nbStepsTotal << " steps of heat diffusion: " << elapsed.count() << " s\n";
+	std::cout << "On a mesh of " << V.rows() << " points" << std::endl;
 
 	// Compute normals
 
