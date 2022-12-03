@@ -77,7 +77,7 @@ public:
 	}
 
 	/** 
-	 * Set the face containing the given half-edge
+	 * Set the previous edge of e
 	 **/
 	void setPrev(int e, int ePrev)
 	{

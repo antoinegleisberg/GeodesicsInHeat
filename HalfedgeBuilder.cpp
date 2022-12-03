@@ -64,7 +64,7 @@ public:
 
 /**
  * @author Luca Castelli Aleardi (2019)
- * This class provides functions for creating an array-based implementation of the ahlf-edge data structure
+ * This class provides functions for creating an array-based implementation of the half-edge data structure
  **/
 class HalfedgeBuilder
 {
@@ -107,7 +107,7 @@ public:
         //cout << "f" << i << ", " << counter << ": processing halfedge " << pair0;
 
         edge = i * d + j;
-        if (insertedHalfedges.find(pair0) == insertedHalfedges.end())
+        if (insertedHalfedges.find(pair0) == insertedHalfedges.end()) // i.e. if pair0 isn't in insertedHalfedges
         {
           insertedHalfedges[pair0] = edge;
           nE = nE + 2; // count all half-edges: each edge must be counted twice

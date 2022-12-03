@@ -20,9 +20,9 @@ MatrixXd V;
 MatrixXi F;
 
 MatrixXd Phi; // Final distance function
-MatrixXd U; // Temperature
-MatrixXd X; // Normalized gradient of U
-MatrixXd B; // Integrated divergences of X
+MatrixXd Temperature; // Temperature
+MatrixXd NormalizedTemperatureGradient; // Normalized gradient of Temperature
+MatrixXd B; // Integrated divergences of NormalizedTemperatureGradient
 SparseMatrix<double> CotAlpha; // Matrix of cot(alpha_ij)
 SparseMatrix<double> CotBeta; // Matrix of cot(beta_ij)
 SparseMatrix<double> D; // Length of edges
@@ -51,6 +51,19 @@ MatrixXd he_N_vertices; // computed using the HalfEdge data structure
 void rescale() {
 	std::cout << "Rescaling..." << std::endl;
 	auto start = std::chrono::high_resolution_clock::now(); // for measuring time performances
+	VectorXd minV = V.colwise().minCoeff();
+	VectorXd maxV = V.colwise().maxCoeff();
+	VectorXd range = maxV - minV;
+	V = (V.rowwise() - minV.transpose());
+	for (int i = 0; i < 3; i++) {
+		V.col(i) = V.col(i) / range(i);
+	}
+	auto finish = std::chrono::high_resolution_clock::now();
+	std::chrono::duration<double> elapsed = finish - start;
+	std::cout << "Computing time for rescaling: " << elapsed.count() << " s\n";
+	return;
+	
+	// old version : Aude if you read and agree please delete
 	double minx = V.row(0)[0];
 	double maxx = V.row(0)[0];
 	double miny = V.row(0)[1];
@@ -69,13 +82,10 @@ void rescale() {
 	double leny = maxy - miny;
 	double lenz = maxz - minz;
 	for (int i = 0; i < V.rows(); i++) {
-		V.row(i)[0] = (V.row(i)[0] + minx) / lenx;
-		V.row(i)[1] = (V.row(i)[1] + miny) / leny;
-		V.row(i)[2] = (V.row(i)[2] + minz) / lenz;
+		V.row(i)[0] = (V.row(i)[0] - minx) / lenx;
+		V.row(i)[1] = (V.row(i)[1] - miny) / leny;
+		V.row(i)[2] = (V.row(i)[2] - minz) / lenz;
 	}
-	auto finish = std::chrono::high_resolution_clock::now();
-	std::chrono::duration<double> elapsed = finish - start;
-	std::cout << "Computing time for rescaling: " << elapsed.count() << " s\n";
 }
 
 /**
@@ -98,7 +108,7 @@ int vertexDegreeCCW(HalfedgeDS he, int v) {
 **/
 void vertexNormals(HalfedgeDS he) {
 	std::cout << "Computing the vertex normals using vertexNormals..." << std::endl;
-	auto starthe = std::chrono::high_resolution_clock::now(); // for measuring time performances
+	auto start = std::chrono::high_resolution_clock::now(); // for measuring time performances
 	he_N_vertices = MatrixXd::Zero(he.sizeOfVertices(), 3);
 	for (int i = 0; i < he.sizeOfVertices(); i++) {
 		int i0 = he.getTarget(he.getOpposite(he.getEdge(i)));
@@ -116,17 +126,17 @@ void vertexNormals(HalfedgeDS he) {
 	}
 	for (int i = 0; i < V.rows(); i++)
 		he_N_vertices.row(i).normalize();
-	auto finishhe = std::chrono::high_resolution_clock::now();
-	std::chrono::duration<double> elapsedhe = finishhe - starthe;
+	auto finish = std::chrono::high_resolution_clock::now();
+	std::chrono::duration<double> elapsedhe = finish - start;
 	std::cout << "Computing time using vertexNormals: " << elapsedhe.count() << " s\n";
 }
 
 /**
-* Compute X (he)
+* Compute NormalizedTemperatureGradient (he)
 **/
-void setInitialU() {
-	U = MatrixXd::Zero(V.rows(), 1);
-	U(0) = 1;
+void setInitialTemperature() {
+	Temperature = MatrixXd::Zero(V.rows(), 1);
+	Temperature(0) = 1;
 }
 
 /**
@@ -270,7 +280,7 @@ void computeSolverImplicit() {
 void computeTimeStepExplicit() {
 	//std::cout << "Computing one time step (explicit)..." << std::endl;
 	//auto start = std::chrono::high_resolution_clock::now(); // for measuring time performances
-	U += SparseMatrixExplicit * U;
+	Temperature += SparseMatrixExplicit * Temperature;
 	//auto finish = std::chrono::high_resolution_clock::now();
 	//std::chrono::duration<double> elapsed = finish - start;
 	//std::cout << "Computing time for one time step (explicit): " << elapsed.count() << " s\n";
@@ -282,20 +292,20 @@ void computeTimeStepExplicit() {
 void computeTimeStepImplicit() {
 	//std::cout << "Computing one time step (implicit)..." << std::endl;
 	//auto start = std::chrono::high_resolution_clock::now(); // for measuring time performances
-	U = SolverImplicit.solve(U);
+	Temperature = SolverImplicit.solve(Temperature);
 	//auto finish = std::chrono::high_resolution_clock::now();
 	//std::chrono::duration<double> elapsed = finish - start;
 	//std::cout << "Computing time for one time step (implicit): " << elapsed.count() << " s\n";
 }
 
 /**
-* Compute X
+* Compute NormalizedTemperatureGradient
 **/
 void computeX(HalfedgeDS he) {
-	std::cout << "Computing X..." << std::endl;
+	std::cout << "Computing NormalizedTemperatureGradient..." << std::endl;
 	auto start = std::chrono::high_resolution_clock::now(); // for measuring time performances
 	MatrixXd Seen = MatrixXd::Zero(F.rows(), 1);
-	X = MatrixXd::Zero(F.rows(), 3);
+	NormalizedTemperatureGradient = MatrixXd::Zero(F.rows(), 3);
 	for (int e = 0; e < he.sizeOfHalfedges(); e++) {
 		int f = he.getFace(e);
 		if (f >= 0)			
@@ -308,16 +318,16 @@ void computeX(HalfedgeDS he) {
 				Vector3d ej(V.row(i) - V.row(k)); // vector opposite to the vertex at the end of j
 				Vector3d ek(V.row(j) - V.row(i)); // vector opposite to the vertex at the end of k
 				Vector3d N = ei.cross(-ek).normalized();
-				X.row(f) += U(i) * N.cross(ei);
-				X.row(f) += U(j) * N.cross(ej);
-				X.row(f) += U(k) * N.cross(ek);
-				if (X.row(f).norm() > 0)
-					X.row(f).normalize();
+				NormalizedTemperatureGradient.row(f) += Temperature(i) * N.cross(ei);
+				NormalizedTemperatureGradient.row(f) += Temperature(j) * N.cross(ej);
+				NormalizedTemperatureGradient.row(f) += Temperature(k) * N.cross(ek);
+				if (NormalizedTemperatureGradient.row(f).norm() > 0)
+					NormalizedTemperatureGradient.row(f).normalize();
 			}	
 	}
 	auto finish = std::chrono::high_resolution_clock::now();
 	std::chrono::duration<double> elapsed = finish - start;
-	std::cout << "Computing time for X: " << elapsed.count() << " s\n";
+	std::cout << "Computing time for NormalizedTemperatureGradient: " << elapsed.count() << " s\n";
 }
 
 /**
@@ -338,7 +348,7 @@ void computeB(HalfedgeDS he) {
 			if (f >= 0) {
 				Vector3d e1(V.row(v2) - V.row(i));
 				Vector3d e2(V.row(v1) - V.row(i));
-				Vector3d x12(X.row(f));
+				Vector3d x12(NormalizedTemperatureGradient.row(f));
 				B(i) += (CotBeta.coeffRef(i, v2) * e1.dot(x12) + CotAlpha.coeffRef(i, v1) * e2.dot(x12)) / 2;
 			}
 			v1 = he.getTarget(he.getOpposite(pe));
@@ -378,9 +388,9 @@ bool key_down(igl::opengl::glfw::Viewer& viewer, unsigned char key, int modifier
 	}
 	case '2':
 	{
-		setInitialU();
+		setInitialTemperature();
 		MatrixXd C;
-		igl::jet(U, true, C); // Assign per-vertex colors
+		igl::jet(Temperature, true, C); // Assign per-vertex colors
 		viewer.data().set_colors(C); // Add per-vertex colors
 		return true;
 	}
@@ -394,7 +404,7 @@ bool key_down(igl::opengl::glfw::Viewer& viewer, unsigned char key, int modifier
 	{
 		computeTimeStepExplicit();
 		MatrixXd C;
-		igl::jet(U, true, C); // Assign per-vertex colors
+		igl::jet(Temperature, true, C); // Assign per-vertex colors
 		viewer.data().set_colors(C); // Add per-vertex colors
 		return true;
 	}
@@ -403,7 +413,7 @@ bool key_down(igl::opengl::glfw::Viewer& viewer, unsigned char key, int modifier
 		for (int i = 0; i < nbSteps; i++)
 			computeTimeStepExplicit();
 		MatrixXd C;
-		igl::jet(U, true, C); // Assign per-vertex colors
+		igl::jet(Temperature, true, C); // Assign per-vertex colors
 		viewer.data().set_colors(C); // Add per-vertex colors
 		return true;
 	}
@@ -422,7 +432,7 @@ bool key_down(igl::opengl::glfw::Viewer& viewer, unsigned char key, int modifier
 			j++;
 			std::cout << j << std::endl;
 			MatrixXd C;
-			igl::jet(U, true, C); // Assign per-vertex colors
+			igl::jet(Temperature, true, C); // Assign per-vertex colors
 			viewer.data().set_colors(C); // Add per-vertex colors
 			return false; };
 		viewer.launch(); // run the editor
@@ -432,7 +442,7 @@ bool key_down(igl::opengl::glfw::Viewer& viewer, unsigned char key, int modifier
 	{
 		computeTimeStepImplicit();
 		MatrixXd C;
-		igl::jet(U, true, C); // Assign per-vertex colors
+		igl::jet(Temperature, true, C); // Assign per-vertex colors
 		viewer.data().set_colors(C); // Add per-vertex colors
 		return true;
 	}
@@ -441,7 +451,7 @@ bool key_down(igl::opengl::glfw::Viewer& viewer, unsigned char key, int modifier
 		for (int i = 0; i < nbSteps; i++)
 			computeTimeStepImplicit();
 		MatrixXd C;
-		igl::jet(U, true, C); // Assign per-vertex colors
+		igl::jet(Temperature, true, C); // Assign per-vertex colors
 		viewer.data().set_colors(C); // Add per-vertex colors
 		return true;
 	}
@@ -457,7 +467,7 @@ bool key_down(igl::opengl::glfw::Viewer& viewer, unsigned char key, int modifier
 			for (int i = 0; i < nbSteps; i++)
 				computeTimeStepImplicit();
 			MatrixXd C;
-			igl::jet(U, true, C); // Assign per-vertex colors
+			igl::jet(Temperature, true, C); // Assign per-vertex colors
 			viewer.data().set_colors(C); // Add per-vertex colors
 			return false; };
 		viewer.launch(); // run the editor
@@ -471,12 +481,6 @@ bool key_down(igl::opengl::glfw::Viewer& viewer, unsigned char key, int modifier
 int main(int argc, char *argv[]) {
 
 	auto totalstart = std::chrono::high_resolution_clock::now(); // for measuring time performances
-
-//	if(argc<2) {
-//		std::cout << "Error: input file required (.OFF)" << std::endl;
-//		return 0;
-//	}
-//	std::cout << "reading input file: " << argv[1] << std::endl;
 
 	//igl::readOFF(argv[1], V, F);
  	//igl::readOFF("../data/cube_open.off", V, F);	// 1 boundary
@@ -504,7 +508,7 @@ int main(int argc, char *argv[]) {
 	// New for the project
 
 	rescale();
-	setInitialU();
+	setInitialTemperature();
 	computeAlphaBetaDdt(he);
 	std::cout << "dt: " << dt << std::endl;
 	computeh();
@@ -528,7 +532,7 @@ int main(int argc, char *argv[]) {
 	computeX(he);
 	computeB(he);
 	computePhi();
-	setInitialU();
+	setInitialTemperature();
 
 	auto totalfinish = std::chrono::high_resolution_clock::now();
 	std::chrono::duration<double> totalelapsed = totalfinish - totalstart;
@@ -566,7 +570,7 @@ int main(int argc, char *argv[]) {
 		"Press '0' to animate (implicit)" << std::endl;
 
 	MatrixXd C;
-	igl::jet(U,true,C); // Assign per-vertex colors
+	igl::jet(Temperature,true,C); // Assign per-vertex colors
 	viewer.data().set_colors(C); // Add per-vertex colors
 
 	//viewer.core(0).align_camera_center(V, F); //not needed
