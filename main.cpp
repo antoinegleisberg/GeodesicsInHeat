@@ -62,30 +62,6 @@ void rescale() {
 	std::chrono::duration<double> elapsed = finish - start;
 	std::cout << "Computing time for rescaling: " << elapsed.count() << " s\n";
 	return;
-	
-	// old version : Aude if you read and agree please delete
-	double minx = V.row(0)[0];
-	double maxx = V.row(0)[0];
-	double miny = V.row(0)[1];
-	double maxy = V.row(0)[1];
-	double minz = V.row(0)[2];
-	double maxz = V.row(0)[2];
-	for (int i = 0; i < V.rows(); i++) {
-		minx = min(minx, V.row(i)[0]);
-		maxx = max(maxx, V.row(i)[0]);
-		miny = min(miny, V.row(i)[1]);
-		maxy = max(maxy, V.row(i)[1]);
-		minz = min(minz, V.row(i)[2]);
-		maxz = max(maxz, V.row(i)[2]);
-	}
-	double lenx = maxx - minx;
-	double leny = maxy - miny;
-	double lenz = maxz - minz;
-	for (int i = 0; i < V.rows(); i++) {
-		V.row(i)[0] = (V.row(i)[0] - minx) / lenx;
-		V.row(i)[1] = (V.row(i)[1] - miny) / leny;
-		V.row(i)[2] = (V.row(i)[2] - minz) / lenz;
-	}
 }
 
 /**
