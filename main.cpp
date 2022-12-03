@@ -25,10 +25,10 @@ MatrixXd NormalizedTemperatureGradient; // Normalized gradient of Temperature
 MatrixXd B; // Integrated divergences of NormalizedTemperatureGradient
 SparseMatrix<double> CotAlpha; // Matrix of cot(alpha_ij)
 SparseMatrix<double> CotBeta; // Matrix of cot(beta_ij)
-SparseMatrix<double> D; // Length of edges
+SparseMatrix<double> Distances; // Length of edges
 double dt; // time step
 double h; // mean spacing between adjacent nodes
-MatrixXd A; // Diagonal of vertex area
+MatrixXd A; // Distancesiagonal of vertex area
 SparseMatrix<double> Lc; // Laplace-Berltrami matrix, but only cotan operator
 
 SparseMatrix<double> SparseMatrixExplicit;
@@ -132,7 +132,7 @@ void vertexNormals(HalfedgeDS he) {
 }
 
 /**
-* Compute NormalizedTemperatureGradient (he)
+* Initialise Temperature matrix
 **/
 void setInitialTemperature() {
 	Temperature = MatrixXd::Zero(V.rows(), 1);
@@ -140,10 +140,10 @@ void setInitialTemperature() {
 }
 
 /**
-* Compute CotAlpha, CotBeta, D and dt (he)
+* Compute CotAlpha, CotBeta, Distances and dt (he)
 **/
 void computeAlphaBetaDdt(HalfedgeDS he) {
-	std::cout << "Computing CotAlpha, CotBeta, D and dt..." << std::endl;
+	std::cout << "Computing CotAlpha, CotBeta, Distances and dt..." << std::endl;
 	auto start = std::chrono::high_resolution_clock::now(); // for measuring time performances
 	std::vector<Eigen::Triplet<double>> stackCotAlpha{};
 	std::vector<Eigen::Triplet<double>> stackCotBeta{};
@@ -173,13 +173,13 @@ void computeAlphaBetaDdt(HalfedgeDS he) {
 	}
 	CotAlpha = SparseMatrix<double>(he.sizeOfVertices(), he.sizeOfVertices());
 	CotBeta = SparseMatrix<double>(he.sizeOfVertices(), he.sizeOfVertices());
-	D = SparseMatrix<double>(he.sizeOfVertices(), he.sizeOfVertices());
+	Distances = SparseMatrix<double>(he.sizeOfVertices(), he.sizeOfVertices());
 	CotAlpha.setFromTriplets(stackCotAlpha.begin(), stackCotAlpha.end());
 	CotBeta.setFromTriplets(stackCotBeta.begin(), stackCotBeta.end());
-	D.setFromTriplets(stackD.begin(), stackD.end());
+	Distances.setFromTriplets(stackD.begin(), stackD.end());
 	auto finish = std::chrono::high_resolution_clock::now();
 	std::chrono::duration<double> elapsed = finish - start;
-	std::cout << "Computing time for CotAlpha, CotBeta, D and dt: " << elapsed.count() << " s\n";
+	std::cout << "Computing time for CotAlpha, CotBeta, Distances and dt: " << elapsed.count() << " s\n";
 }
 
 /**
@@ -188,10 +188,10 @@ void computeAlphaBetaDdt(HalfedgeDS he) {
 void computeh() {
 	std::cout << "Computing h..." << std::endl;
 	auto start = std::chrono::high_resolution_clock::now(); // for measuring time performances
-	if (D.nonZeros() == 0)
+	if (Distances.nonZeros() == 0)
 		h = 0;
 	else
-		h = D.sum() / D.nonZeros();
+		h = Distances.sum() / Distances.nonZeros();
 	auto finish = std::chrono::high_resolution_clock::now();
 	std::chrono::duration<double> elapsed = finish - start;
 	std::cout << "Computing time for h: " << elapsed.count() << " s\n";
@@ -209,7 +209,7 @@ void computeA(HalfedgeDS he) {
 		int e = he.getEdge(i); // edge from x_j to x_i
 		int j = he.getTarget(he.getOpposite(e)); // vertex before i
 		for (int k = 0; k < vDCW; k++) {
-			A(i) += D.coeffRef(i, j) * D.coeffRef(i, j) * (CotAlpha.coeffRef(i, j) + CotBeta.coeffRef(i, j));
+			A(i) += Distances.coeffRef(i, j) * Distances.coeffRef(i, j) * (CotAlpha.coeffRef(i, j) + CotBeta.coeffRef(i, j));
 			e = he.getOpposite(he.getNext(e));
 			j = he.getTarget(he.getOpposite(e));
 		}
