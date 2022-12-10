@@ -13,7 +13,7 @@
 
 #include "HalfedgeBuilder.cpp"
 
-using namespace Eigen; // to use the classes provided by Eigen library
+using namespace Eigen; // To use the classes provided by Eigen library
 using namespace std;
 
 MatrixXd V;
@@ -43,10 +43,7 @@ SparseMatrix<double> LeftSideImplicit;
 SimplicialCholesky<SparseMatrix<double>> SolverImplicit;
 SimplicialCholesky<SparseMatrix<double>> SolverFinal;
 
-
-MatrixXd N_faces; // computed calling pre-defined functions of LibiGL
-MatrixXd N_vertices; // computed calling pre-defined functions of LibiGL
-MatrixXd he_N_vertices; // computed using the HalfEdge data structure
+MatrixXd N_vertices; // Computed calling pre-defined functions of LibiGL
 
 MatrixXd TheoreticalShereDistance; // Computed using the theoretical formula
 
@@ -81,43 +78,6 @@ int vertexDegreeCCW(HalfedgeDS he, int v) {
 		nextEdge = he.getOpposite(he.getNext(nextEdge));
 	}
 	return vertexDegree;
-}
-
-/**
-* Compute the vertex normals
-**/
-void vertexNormals(HalfedgeDS he) {
-	std::cout << "Computing the vertex normals using vertexNormals..." << std::endl;
-	auto start = std::chrono::high_resolution_clock::now(); // for measuring time performances
-	he_N_vertices = MatrixXd::Zero(he.sizeOfVertices(), 3);
-	for (int i = 0; i < he.sizeOfVertices(); i++) {
-		int i0 = he.getTarget(he.getOpposite(he.getEdge(i)));
-		int i1 = i;
-		int i2 = he.getTarget(he.getNext(he.getEdge(i)));
-		Vector3d u(V.row(i1) - V.row(i0));
-		Vector3d v(V.row(i2) - V.row(i1));
-		Vector3d w = u.cross(v);
-		w.normalize();
-		he_N_vertices.row(i0) += w;
-		he_N_vertices.row(i1) += w;
-		he_N_vertices.row(i2) += w;
-
-		// @Aude : ok pour ce changement ?
-		/*
-		w.normalize();
-		MatrixXd n = MatrixXd::Zero(1, 3);
-		n(0) = w[0]; n(1) = w[1]; n(2) = w[2];
-		he_N_vertices.row(i0) += n;
-		he_N_vertices.row(i1) += n;
-		he_N_vertices.row(i2) += n;
-		*/
-	}
-	he_N_vertices.rowwise().normalize();
-	// @Aude : ok pour ce changement ?
-	// for (int i = 0; i < V.rows(); i++) he_N_vertices.row(i).normalize();
-	auto finish = std::chrono::high_resolution_clock::now();
-	std::chrono::duration<double> elapsed = finish - start;
-	std::cout << "Computing time using vertexNormals: " << elapsed.count() << " s" << std::endl;
 }
 
 /*
@@ -244,7 +204,7 @@ void computeVoronoiArea(HalfedgeDS he) {
 			j = he.getTarget(he.getOpposite(e));
 		}
 		A(i) /= 8;
-		//A(i) = 8 / A(i);
+		// A(i) = 8 / A(i);
 	}
 	auto finish = std::chrono::high_resolution_clock::now();
 	std::chrono::duration<double> elapsed = finish - start;
@@ -456,21 +416,6 @@ void TheoreticalSphereDistance() {
 	TheoreticalShereDistance = D.col(0);
 }
 
-/*
-void draw_normals(igl::opengl::glfw::Viewer& viewer, const MatrixXd& V, const MatrixXd& n) {
-	MatrixXd current_edge(V.rows(), 3);
-	for (unsigned i = 1; i < V.rows() - 1; ++i) {
-		current_edge(i, 0) = V(i, 0) + n(i, 0);
-		current_edge(i, 1) = V(i, 1) + n(i, 1);
-		current_edge(i, 2) = V(i, 2) + n(i, 2);
-		viewer.data().add_edges(
-			V.row(i),
-			current_edge.row(i),
-			Eigen::RowVector3d(1, 1, 1));
-	}
-}
-*/
-
 // This function is called every time a keyboard button is pressed
 bool key_down(igl::opengl::glfw::Viewer& viewer, unsigned char key, int modifier) {
 	switch (key) {
@@ -549,7 +494,7 @@ bool key_down(igl::opengl::glfw::Viewer& viewer, unsigned char key, int modifier
 		igl::opengl::glfw::Viewer viewer;
 		viewer.data().show_lines = false;
 		viewer.data().set_mesh(V, F);
-		viewer.data().set_normals(N_faces);
+		viewer.data().set_normals(N_vertices);
 		viewer.core().is_animating = true;
 		int j = 0;
 		viewer.callback_pre_draw = [&](igl::opengl::glfw::Viewer&)->bool // run animation
@@ -587,7 +532,7 @@ bool key_down(igl::opengl::glfw::Viewer& viewer, unsigned char key, int modifier
 		igl::opengl::glfw::Viewer viewer;
 		viewer.data().show_lines = false;
 		viewer.data().set_mesh(V, F);
-		viewer.data().set_normals(N_faces);
+		viewer.data().set_normals(N_vertices);
 		viewer.core().is_animating = true;
 		viewer.callback_pre_draw = [&](igl::opengl::glfw::Viewer&)->bool // run animation
 		{
@@ -676,13 +621,13 @@ int main(int argc, char* argv[]) {
 		std::cout << "  Dijkstra distance : " << DijkstraDistances.row(i) << std::endl;
 	}
 
-	cout << "Here is GeodesicDistance.mean():      " << GeodesicDistance.mean() << endl;
-	cout << "Here is GeodesicDistance.minCoeff():  " << GeodesicDistance.minCoeff() << endl;
-	cout << "Here is GeodesicDistance.maxCoeff():  " << GeodesicDistance.maxCoeff() << endl;
+	cout << "GeodesicDistance.mean():      " << GeodesicDistance.mean() << endl;
+	cout << "GeodesicDistance.minCoeff():  " << GeodesicDistance.minCoeff() << endl;
+	cout << "GeodesicDistance.maxCoeff():  " << GeodesicDistance.maxCoeff() << endl;
 
-	cout << "Here is DijkstraDistances.mean():      " << DijkstraDistances.mean() << endl;
-	cout << "Here is DijkstraDistances.minCoeff():  " << DijkstraDistances.minCoeff() << endl;
-	cout << "Here is DijkstraDistances.maxCoeff():  " << DijkstraDistances.maxCoeff() << endl;
+	cout << "DijkstraDistances.mean():      " << DijkstraDistances.mean() << endl;
+	cout << "DijkstraDistances.minCoeff():  " << DijkstraDistances.minCoeff() << endl;
+	cout << "DijkstraDistances.maxCoeff():  " << DijkstraDistances.maxCoeff() << endl;
 
 	auto totalfinish = std::chrono::high_resolution_clock::now();
 	std::chrono::duration<double> totalelapsed = totalfinish - totalstart;
@@ -696,9 +641,6 @@ int main(int argc, char* argv[]) {
 	// Compute per-vertex normals
 	igl::per_vertex_normals(V, F, N_vertices);
 
-	// Compute he_per-vertex normals
-	vertexNormals(he);
-
 	///////////////////////////////////////////
 
 		// Plot the mesh with pseudocolors
@@ -707,7 +649,7 @@ int main(int argc, char* argv[]) {
 	viewer.callback_key_down = &key_down;
 	viewer.data().show_lines = false;
 	viewer.data().set_mesh(V, F);
-	viewer.data().set_normals(N_faces);
+	viewer.data().set_normals(N_vertices);
 	std::cout <<
 		"Press '1' to display the geodesic distance obtained via the heat method" << std::endl <<
 		"Press '2' to display the distance obtained via the Dijkstra method" << std::endl <<
