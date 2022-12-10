@@ -29,6 +29,7 @@ int nbSteps = 1000; // Number of time steps between animations
 int nbStepsTotal = 1000000; // Number of time steps between animations
 MatrixXd Temperature; // Temperature, called U in the paper
 MatrixXd NormalizedTemperatureGradient; // Normalized gradient of Temperature, called X in the paper
+MatrixXd CenterOfFaces; // Normalized gradient of Temperature, called X in the paper
 MatrixXd B; // Integrated divergences of NormalizedTemperatureGradient
 SparseMatrix<double> CotAlpha; // Matrix of cot(alpha_ij)
 SparseMatrix<double> CotBeta; // Matrix of cot(beta_ij)
@@ -128,17 +129,17 @@ void vertexNormals(HalfedgeDS he) {
  Returns:
 	- the matrix of distances
 */
-void ComputeDijkstra(HalfedgeDS he, int* sources, int nbSources) {
+void ComputeDijkstra(HalfedgeDS he) {
 	std::cout << "Computing Dijkstra method..." << std::endl;
 	auto start = std::chrono::high_resolution_clock::now(); // for measuring time performances
 	DijkstraDistances = VectorXd::Constant(he.sizeOfVertices(), std::numeric_limits<double>::infinity());
-	for (int i = 0; i < nbSources; i++) DijkstraDistances(sources[i]) = 0;
+	for (int i = 0; i < nbSources; i++) DijkstraDistances(Sources[i]) = 0;
 	int* queue = new int[he.sizeOfHalfedges()];
 	int head = 0; // The head of the queue : vertices to be processed
 	int tail = 0; // The tail of the queue : the last inserted vertex
 	for (int i = 0; i < nbSources; i++) {
-		DijkstraDistances(sources[i]) = 0;
-		queue[tail] = sources[i];
+		DijkstraDistances(Sources[i]) = 0;
+		queue[tail] = Sources[i];
 		tail++;
 	}
 	while (head != tail) {
@@ -362,35 +363,32 @@ void computeTimeStepImplicit() {
 }
 
 /**
-* Compute NormalizedTemperatureGradient
+* Compute NormalizedTemperatureGradient and EdgesNormalizedTemperatureGradient
 **/
 void computeNormalizedTemperatureGradient(HalfedgeDS he) {
-	std::cout << "Computing NormalizedTemperatureGradient..." << std::endl;
+	std::cout << "Computing NormalizedTemperatureGradient and EdgesNormalizedTemperatureGradient..." << std::endl;
 	auto start = std::chrono::high_resolution_clock::now(); // for measuring time performances
-	MatrixXd Seen = MatrixXd::Zero(F.rows(), 1);
 	NormalizedTemperatureGradient = MatrixXd::Zero(F.rows(), 3);
-	for (int e = 0; e < he.sizeOfHalfedges(); e++) {
-		int f = he.getFace(e);
-		if (f >= 0)
-			if (Seen(f) == 0) {
-				Seen(f) = 1;
-				int i = he.getTarget(e);
-				int j = he.getTarget(he.getNext(e));
-				int k = he.getTarget(he.getPrev(e));
-				Vector3d ei(V.row(k) - V.row(j)); // vector opposite to the vertex at the end of i
-				Vector3d ej(V.row(i) - V.row(k)); // vector opposite to the vertex at the end of j
-				Vector3d ek(V.row(j) - V.row(i)); // vector opposite to the vertex at the end of k
-				Vector3d N = ei.cross(-ek).normalized();
-				NormalizedTemperatureGradient.row(f) += Temperature(i) * N.cross(ei);
-				NormalizedTemperatureGradient.row(f) += Temperature(j) * N.cross(ej);
-				NormalizedTemperatureGradient.row(f) += Temperature(k) * N.cross(ek);
-				if (NormalizedTemperatureGradient.row(f).norm() > 0)
-					NormalizedTemperatureGradient.row(f).normalize();
-			}
+	CenterOfFaces = MatrixXd::Zero(F.rows(), 3);
+	for (int f = 0; f < F.rows(); f++) {
+		int e = he.getEdgeInFace(f);
+		int i = he.getTarget(e);
+		int j = he.getTarget(he.getNext(e));
+		int k = he.getTarget(he.getPrev(e));
+		Vector3d ei(V.row(k) - V.row(j)); // vector opposite to the vertex at the end of i
+		Vector3d ej(V.row(i) - V.row(k)); // vector opposite to the vertex at the end of j
+		Vector3d ek(V.row(j) - V.row(i)); // vector opposite to the vertex at the end of k
+		Vector3d N = ei.cross(-ek).normalized();
+		NormalizedTemperatureGradient.row(f) += Temperature(i) * N.cross(ei);
+		NormalizedTemperatureGradient.row(f) += Temperature(j) * N.cross(ej);
+		NormalizedTemperatureGradient.row(f) += Temperature(k) * N.cross(ek);
+		if (NormalizedTemperatureGradient.row(f).norm() > 0)
+			NormalizedTemperatureGradient.row(f).normalize();
+		CenterOfFaces.row(f) = (V.row(i) + V.row(j) + V.row(k)) / 3;
 	}
 	auto finish = std::chrono::high_resolution_clock::now();
 	std::chrono::duration<double> elapsed = finish - start;
-	std::cout << "Computing time for NormalizedTemperatureGradient: " << elapsed.count() << " s\n";
+	std::cout << "Computing time for NormalizedTemperatureGradient and EdgesNormalizedTemperatureGradient: " << elapsed.count() << " s\n";
 }
 
 /**
@@ -428,12 +426,14 @@ void computeB(HalfedgeDS he) {
 /**
 * Compute GeodesicDistance
 **/
-void computeGeodesicDisctance() {
+void computeGeodesicDistance() {
 	std::cout << "Computing GeodesicDistance..." << std::endl;
 	auto start = std::chrono::high_resolution_clock::now();
 
 	SolverFinal.compute(Lc);
 	GeodesicDistance = SolverFinal.solve(B);
+
+	GeodesicDistance -= GeodesicDistance.minCoeff() * MatrixXd::Ones(V.rows(), 1);
 
 	auto finish = std::chrono::high_resolution_clock::now();
 	std::chrono::duration<double> elapsed = finish - start;
@@ -450,26 +450,52 @@ void TheoreticalSphereDistance() {
 		for (int j = 0; j < V.rows(); j++) {
 			Vector3d vi = (V.row(i) - center).normalized();
 			Vector3d vj = (V.row(j) - center).normalized();
-			D(i, j) = acos(vi.dot(vj));
+			D(i, j) = acos(vi.dot(vj)) / 2;
 		}
 	}
-	TheoreticalShereDistance = D.row(0);
+	TheoreticalShereDistance = D.col(0);
+	std::cout << "TSD " << TheoreticalShereDistance << std::endl;
 }
+
+/*
+void draw_normals(igl::opengl::glfw::Viewer& viewer, const MatrixXd& V, const MatrixXd& n) {
+	MatrixXd current_edge(V.rows(), 3);
+	for (unsigned i = 1; i < V.rows() - 1; ++i) {
+		current_edge(i, 0) = V(i, 0) + n(i, 0);
+		current_edge(i, 1) = V(i, 1) + n(i, 1);
+		current_edge(i, 2) = V(i, 2) + n(i, 2);
+		viewer.data().add_edges(
+			V.row(i),
+			current_edge.row(i),
+			Eigen::RowVector3d(1, 1, 1));
+	}
+}
+*/
 
 // This function is called every time a keyboard button is pressed
 bool key_down(igl::opengl::glfw::Viewer& viewer, unsigned char key, int modifier) {
 	switch (key) {
-	case 'a':
+	case 'S':
 	{
 		MatrixXd C;
 		igl::jet(-TheoreticalShereDistance, true, C); // Assign per-vertex colors
 		viewer.data().set_colors(C); // Add per-vertex colors
 		return true;
 	}
+	case 'G':
+	{
+		for (int f = 0; f < F.rows(); f++) {
+			viewer.data().add_edges(
+				CenterOfFaces.row(f),
+				CenterOfFaces.row(f) + NormalizedTemperatureGradient.row(f) / 8,
+				Eigen::RowVector3d(1, 1, 1));
+		}
+		return true;
+	}
 	case '1':
 	{
 		MatrixXd C;
-		igl::jet(-GeodesicDistance, true, C); // Assign per-vertex colors
+		igl::jet(GeodesicDistance, true, C); // Assign per-vertex colors
 		viewer.data().set_colors(C); // Add per-vertex colors
 		return true;
 	}
@@ -581,7 +607,7 @@ int main(int argc, char* argv[]) {
 	//igl::readOFF("../data/cube_open.off", V, F);	// 1 boundary
 	//igl::readOFF("../data/cube_tri.off", V, F);	// 0 boundary
 	//igl::readOFF("../data/star.off", V, F);		// 0 boundary
-	//igl::readOFF("../data/sphere.off", V, F);		// 0 boundary
+	igl::readOFF("../data/sphere.off", V, F);		// 0 boundary
 	//igl::readOFF("../data/nefertiti.off", V, F);	// 1 boundary
 	//igl::readOFF("../data/cat0.off",V,F);			// 2 boundaries
 	//igl::readOFF("../data/chandelier.off", V, F);	// 10 boundaries
@@ -589,16 +615,24 @@ int main(int argc, char* argv[]) {
 	//igl::readOFF("../data/high_genus.off", V, F);	// 0 boundary
 	//igl::readOFF("../data/homer.off", V, F);		// 1 boundary
 	//igl::readOFF("../data/venus.off", V, F);		// 1 boundary
-	igl::readOFF("../data/bunny.off", V, F);
+	//igl::readOFF("../data/bunny.off", V, F);
 	//igl::readOFF("../data/egea.off", V, F);
 	//igl::readOFF("../data/gargoyle_tri.off", V, F);
+	//
+	//igl::readOFF("../data/icosahedron.off", V, F);
+	//igl::readOFF("../data/letter_a.off", V, F);
+	//igl::readOFF("../data/octagon.off", V, F);
+	//igl::readOFF("../data/tetrahedron.off", V, F);
+	//igl::readOFF("../data/torus_33.off", V, F);
+	//igl::readOFF("../data/twisted.off", V, F);	// 0 boundary -> WORKS !
+	//igl::readOFF("../data/output.off", V, F);		// 0 boundary -> WORKS !
 
 	//print the number of mesh elements
 	std::cout << "Points: " << V.rows() << std::endl;
 
 	HalfedgeBuilder* builder = new HalfedgeBuilder();
 
-	HalfedgeDS he = builder->createMesh(V.rows(), F);
+	HalfedgeDS he = builder->createMeshWithFaces(V.rows(), F);
 
 	rescale();
 
@@ -625,19 +659,24 @@ int main(int argc, char* argv[]) {
 	std::cout << "Computing time for " << nbStepsTotal << " steps: " << elapsed.count() << " s\n";
 	computeNormalizedTemperatureGradient(he);
 	computeB(he);
-	computeGeodesicDisctance();
+	computeGeodesicDistance();
 	setInitialTemperature();
 
 	// Dijkstra method
-	int nbSources = 1;
-	int* sources = new int[nbSources];
-	for (int i = 0; i < nbSources; i++) sources[i] = i; // Set the indices of the sources. We just take the i first vertices
-	ComputeDijkstra(he, sources, 1);
-	for (int i = 0; i < 10; i++) {
+	ComputeDijkstra(he);
+	for (int i = 0; i < V.rows(); i++) {
 		std::cout << "Distance to point : " << V.row(i) << std::endl;
 		std::cout << "Geodesic distance : " << GeodesicDistance.row(i);
 		std::cout << "  Dijkstra distance : " << DijkstraDistances.row(i) << std::endl;
 	}
+
+	cout << "Here is GeodesicDistance.mean():      " << GeodesicDistance.mean() << endl;
+	cout << "Here is GeodesicDistance.minCoeff():  " << GeodesicDistance.minCoeff() << endl;
+	cout << "Here is GeodesicDistance.maxCoeff():  " << GeodesicDistance.maxCoeff() << endl;
+
+	cout << "Here is DijkstraDistances.mean():      " << DijkstraDistances.mean() << endl;
+	cout << "Here is DijkstraDistances.minCoeff():  " << DijkstraDistances.minCoeff() << endl;
+	cout << "Here is DijkstraDistances.maxCoeff():  " << DijkstraDistances.maxCoeff() << endl;
 
 	auto totalfinish = std::chrono::high_resolution_clock::now();
 	std::chrono::duration<double> totalelapsed = totalfinish - totalstart;
@@ -675,7 +714,8 @@ int main(int argc, char* argv[]) {
 		"Press '9' to compute " << nbSteps << " steps (implicit)" << std::endl <<
 		"Press '0' to animate (implicit)" << std::endl <<
 		"Press 'l' to display or mask the edges" << std::endl <<
-		"Press 'a' to display the theoretical sphere distance" << std::endl;
+		"Press 's' to display the theoretical sphere distance" << std::endl <<
+		"Press 'g' to display the directions of the gradient of temperature" << std::endl;
 
 	MatrixXd C;
 	igl::jet(Temperature, true, C); // Assign per-vertex colors
