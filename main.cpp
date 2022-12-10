@@ -26,8 +26,8 @@ MatrixXd B; // Integrated divergences of NormalizedTemperatureGradient
 SparseMatrix<double> CotAlpha; // Matrix of cot(alpha_ij)
 SparseMatrix<double> CotBeta; // Matrix of cot(beta_ij)
 SparseMatrix<double> Distances; // Length of edges
-double dt; // time step
-double h; // mean spacing between adjacent nodes
+double dt; // Time step
+double h; // Mean spacing between adjacent nodes
 MatrixXd A; // Distancesiagonal of vertex area; Voronoi area of each vertex
 SparseMatrix<double> Lc; // Laplace-Berltrami matrix, but only cotan operator
 
@@ -36,17 +36,19 @@ SparseMatrix<double> LeftSideImplicit;
 SimplicialCholesky<SparseMatrix<double>> SolverImplicit;
 SimplicialCholesky<SparseMatrix<double>> SolverFinal;
 
-int nbSteps = 1000; // number of time steps between animations
-int nbStepsTotal = 1000000; // number of time steps between animations
+int nbSteps = 1000; // Number of time steps between animations
+int nbStepsTotal = 1000000; // Number of time steps between animations
 
 MatrixXd N_faces; // computed calling pre-defined functions of LibiGL
 MatrixXd N_vertices; // computed calling pre-defined functions of LibiGL
-MatrixXd lib_N_vertices; // computed using face-vertex structure of LibiGL
-MatrixXi lib_Deg_vertices; // computed using face-vertex structure of LibiGL
 MatrixXd he_N_vertices; // computed using the HalfEdge data structure
 
-VectorXd DijkstraDistances; // computed using Dijkstra algorithm
-MatrixXd TheoreticalShereDistance; // computed using the theoretical formula
+const int nbSources = 1; // Number of sources of heat
+int Sources[nbSources] = { 0 }; // Sources of heat
+
+VectorXd DijkstraDistances; // Computed using Dijkstra algorithm
+
+MatrixXd TheoreticalShereDistance; // Computed using the theoretical formula
 
 /*
  Computes the dijkstra distances to the sources
@@ -160,7 +162,8 @@ void vertexNormals(HalfedgeDS he) {
 **/
 void setInitialTemperature() {
 	Temperature = MatrixXd::Zero(V.rows(), 1);
-	Temperature(0) = 1;
+	for (int i = 0; i < nbSources; i++)
+		Temperature(Sources[i]) = 1;
 }
 
 /**
@@ -443,38 +446,9 @@ void computeGeodesicDisctance() {
 	std::cout << "Computing time for GeodesicDistance: " << elapsed.count() << " s\n";
 }
 
-
 // This function is called every time a keyboard button is pressed
 bool key_down(igl::opengl::glfw::Viewer& viewer, unsigned char key, int modifier) {
 	switch (key) {
-	case 'a':
-	{
-		MatrixXd C;
-		igl::jet(DijkstraDistances, true, C); // Assign per-vertex colors
-		viewer.data().set_colors(C); // Add per-vertex colors
-		return true;
-	}
-	case 'A':
-	{
-		MatrixXd C;
-		igl::jet(DijkstraDistances, true, C); // Assign per-vertex colors
-		viewer.data().set_colors(C); // Add per-vertex colors
-		return true;
-	}
-	case 'e':
-	{
-		MatrixXd C;
-		igl::jet(TheoreticalShereDistance, true, C); // Assign per-vertex colors
-		viewer.data().set_colors(C); // Add per-vertex colors
-		return true;
-	}
-	case 'E':
-	{
-		MatrixXd C;
-		igl::jet(TheoreticalShereDistance, true, C); // Assign per-vertex colors
-		viewer.data().set_colors(C); // Add per-vertex colors
-		return true;
-	}
 	case '1':
 	{
 		MatrixXd C;
@@ -484,18 +458,26 @@ bool key_down(igl::opengl::glfw::Viewer& viewer, unsigned char key, int modifier
 	}
 	case '2':
 	{
+		MatrixXd C;
+		igl::jet(-DijkstraDistances, true, C); // Assign per-vertex colors
+		viewer.data().set_colors(C); // Add per-vertex colors
+		return true;
+	}
+	case '3':
+	{
+		MatrixXd C;
+		igl::jet(Temperature, true, C); // Assign per-vertex colors
+		viewer.data().set_colors(C); // Add per-vertex colors
+		return true;
+	}
+	case '4':
+	{
 		setInitialTemperature();
 		MatrixXd C;
 		igl::jet(Temperature, true, C); // Assign per-vertex colors
 		viewer.data().set_colors(C); // Add per-vertex colors
 		return true;
 	}
-	case '3':
-		viewer.data().set_normals(N_vertices);
-		return true;
-	case '4':
-		viewer.data().set_normals(he_N_vertices);
-		return true;
 	case '5':
 	{
 		computeTimeStepExplicit();
@@ -516,7 +498,6 @@ bool key_down(igl::opengl::glfw::Viewer& viewer, unsigned char key, int modifier
 	case '7':
 	{
 		igl::opengl::glfw::Viewer viewer;
-		viewer.data().show_lines = false;
 		viewer.data().set_mesh(V, F);
 		viewer.data().set_normals(N_faces);
 		viewer.core().is_animating = true;
@@ -554,7 +535,6 @@ bool key_down(igl::opengl::glfw::Viewer& viewer, unsigned char key, int modifier
 	case '0':
 	{
 		igl::opengl::glfw::Viewer viewer;
-		viewer.data().show_lines = false;
 		viewer.data().set_mesh(V, F);
 		viewer.data().set_normals(N_faces);
 		viewer.core().is_animating = true;
@@ -667,16 +647,17 @@ int main(int argc, char* argv[]) {
 	viewer.data().set_mesh(V, F);
 	viewer.data().set_normals(N_faces);
 	std::cout <<
-		"Press '1' to compute the distance" << std::endl <<
-		"Press '2' to reset the temperature" << std::endl <<
-		"Press '3' for per-vertex normals calling pre-defined functions of LibiGL" << std::endl <<
-		"Press '4' for HE_per-vertex normals using HalfEdge structure" << std::endl <<
-		"Press '5' to compute one steps (explicit)" << std::endl <<
+		"Press '1' to display the geodesic distance obtained via the heat method" << std::endl <<
+		"Press '2' to display the distance obtained via the Dijkstra method" << std::endl <<
+		"Press '3' to display the current temperature" << std::endl <<
+		"Press '4' to reset and display the temperature" << std::endl <<
+		"Press '5' to compute one step (explicit)" << std::endl <<
 		"Press '6' to compute " << nbSteps << " steps (explicit)" << std::endl <<
 		"Press '7' to animate (explicit)" << std::endl <<
-		"Press '8' to compute one steps (implicit)" << std::endl <<
+		"Press '8' to compute one step (implicit)" << std::endl <<
 		"Press '9' to compute " << nbSteps << " steps (implicit)" << std::endl <<
-		"Press '0' to animate (implicit)" << std::endl;
+		"Press '0' to animate (implicit)" << std::endl <<
+		"Press 'l' to display or mask the edges" << std::endl;
 
 	MatrixXd C;
 	igl::jet(Temperature, true, C); // Assign per-vertex colors
