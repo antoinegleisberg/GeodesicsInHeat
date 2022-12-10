@@ -46,6 +46,7 @@ MatrixXi lib_Deg_vertices; // computed using face-vertex structure of LibiGL
 MatrixXd he_N_vertices; // computed using the HalfEdge data structure
 
 VectorXd DijkstraDistances; // computed using Dijkstra algorithm
+MatrixXd TheoreticalShereDistance; // computed using the theoretical formula
 
 /*
  Computes the dijkstra distances to the sources
@@ -224,9 +225,10 @@ void computeh() {
 /**
 * Compute A (he)
 **/
-void computeA(HalfedgeDS he) {
+void computeVoronoiArea(HalfedgeDS he) {
 	std::cout << "Computing A..." << std::endl;
-	auto start = std::chrono::high_resolution_clock::now(); // for measuring time performances
+	auto start = std::chrono::high_resolution_clock::now();
+
 	A = MatrixXd::Zero(he.sizeOfVertices(), 1);
 	for (int i = 0; i < he.sizeOfVertices(); i++) {
 		int vDCW = vertexDegreeCCW(he, i);
@@ -240,9 +242,44 @@ void computeA(HalfedgeDS he) {
 		A(i) /= 8;
 		//A(i) = 8 / A(i);
 	}
+
 	auto finish = std::chrono::high_resolution_clock::now();
 	std::chrono::duration<double> elapsed = finish - start;
 	std::cout << "Computing time for A: " << elapsed.count() << " s\n";
+}
+
+void computeArea(HalfedgeDS he) {
+	A = MatrixXd::Zero(he.sizeOfVertices(), 1);
+	for (int i = 0; i < he.sizeOfVertices(); i++) {
+		double vertexArea = 0;
+		int edge1 = he.getEdge(i);
+		int edge2 = he.getOpposite(he.getNext(edge1));
+		do {
+			int j = he.getTarget(he.getOpposite(edge1));
+			int k = he.getTarget(he.getOpposite(edge2));
+			double lenij = (V.row(i) - V.row(j)).norm();
+			double lenik = (V.row(i) - V.row(k)).norm();
+			double lenjk = (V.row(j) - V.row(k)).norm();
+			double halfPerimeter = (lenij + lenik + lenjk) / 2;
+			vertexArea += sqrt(halfPerimeter * (halfPerimeter - lenij) * (halfPerimeter - lenik) * (halfPerimeter - lenjk)) / 3;
+			edge1 = edge2;
+			edge2 = he.getOpposite(he.getNext(edge2));
+		} while (edge1 != he.getEdge(i));
+		A(i) = vertexArea;
+	}
+}
+
+void TheoreticalSphereDistance() {
+	MatrixXd D = MatrixXd::Zero(V.rows(), V.rows());
+	MatrixXd center = MatrixXd::Constant(1, 3, 0.5);
+	for (int i = 0; i < V.rows(); i++) {
+		for (int j = 0; j < V.rows(); j++) {
+			Vector3d vi = (V.row(i) - center).normalized();
+			Vector3d vj = (V.row(j) - center).normalized();
+			D(i, j) = acos(vi.dot(vj));
+		}
+	}
+	TheoreticalShereDistance = D.row(0);
 }
 
 /**
@@ -396,9 +433,11 @@ void computeB(HalfedgeDS he) {
 **/
 void computeGeodesicDisctance() {
 	std::cout << "Computing GeodesicDistance..." << std::endl;
-	auto start = std::chrono::high_resolution_clock::now(); // for measuring time performances
+	auto start = std::chrono::high_resolution_clock::now();
+
 	SolverFinal.compute(Lc);
 	GeodesicDistance = SolverFinal.solve(B);
+
 	auto finish = std::chrono::high_resolution_clock::now();
 	std::chrono::duration<double> elapsed = finish - start;
 	std::cout << "Computing time for GeodesicDistance: " << elapsed.count() << " s\n";
@@ -408,14 +447,35 @@ void computeGeodesicDisctance() {
 // This function is called every time a keyboard button is pressed
 bool key_down(igl::opengl::glfw::Viewer& viewer, unsigned char key, int modifier) {
 	switch (key) {
-	case 'd':
+	case 'a':
 	{
 		MatrixXd C;
 		igl::jet(DijkstraDistances, true, C); // Assign per-vertex colors
 		viewer.data().set_colors(C); // Add per-vertex colors
 		return true;
 	}
-	case '1':
+	case 'A':
+	{
+		MatrixXd C;
+		igl::jet(DijkstraDistances, true, C); // Assign per-vertex colors
+		viewer.data().set_colors(C); // Add per-vertex colors
+		return true;
+	}
+	case 'e':
+	{
+		MatrixXd C;
+		igl::jet(TheoreticalShereDistance, true, C); // Assign per-vertex colors
+		viewer.data().set_colors(C); // Add per-vertex colors
+		return true;
+	}
+	case 'E':
+	{
+		MatrixXd C;
+		igl::jet(TheoreticalShereDistance, true, C); // Assign per-vertex colors
+		viewer.data().set_colors(C); // Add per-vertex colors
+		return true;
+	}
+ 	case '1':
 	{
 		MatrixXd C;
 		igl::jet(GeodesicDistance, true, C); // Assign per-vertex colors
@@ -549,7 +609,7 @@ int main(int argc, char *argv[]) {
 	std::cout << "dt: " << dt << std::endl;
 	computeh();
 	std::cout << "h: " << h << std::endl;
-	computeA(he);
+	computeArea(he);
 	computeL(he);
 	computeSparseMatrixExplicit();
 	computeSolverImplicit();
@@ -576,10 +636,7 @@ int main(int argc, char *argv[]) {
 	for (int i = 0; i < nbSources; i++) sources[i] = i; // Set the indices of the sources. We just take the i first vertices
 	ComputeDijkstra(he, sources, 1);
 	std::cout << "Done computing Dijkstra" << std::endl;
-	std::cout << "Checking format : " << std::endl;
-	std::cout << "nb lines Geodesic : " << GeodesicDistance.rows() << " nb lines Dijkstra : " << DijkstraDistances.rows() << std::endl;
-	std::cout << "nb cols Geodesic : " << GeodesicDistance.cols() << " nb lines Dijkstra : " << DijkstraDistances.cols() << std::endl;
-	for (int i = 0; i < V.rows(); i++) {
+	for (int i = 0; i < 10; i++) {
 		std::cout << "Distance to point : " << V.row(i) << std::endl;
 		std::cout << "Geodesic distance : " << GeodesicDistance.row(i);
 		std::cout << "  Dijkstra distance : " << DijkstraDistances.row(i) << std::endl;
@@ -591,7 +648,8 @@ int main(int argc, char *argv[]) {
 	std::cout << "Including computing time for a total of " << nbStepsTotal << " steps of heat diffusion: " << elapsed.count() << " s\n";
 	std::cout << "On a mesh of " << V.rows() << " points" << std::endl;
 
-	// Compute normals
+	// Theoretical sphere distance
+	TheoreticalSphereDistance();
 
 	// Compute per-vertex normals
 	igl::per_vertex_normals(V,F,N_vertices);
