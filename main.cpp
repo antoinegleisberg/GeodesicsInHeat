@@ -45,6 +45,44 @@ MatrixXd lib_N_vertices; // computed using face-vertex structure of LibiGL
 MatrixXi lib_Deg_vertices; // computed using face-vertex structure of LibiGL
 MatrixXd he_N_vertices; // computed using the HalfEdge data structure
 
+VectorXd DijkstraDistances; // computed using Dijkstra algorithm
+
+/*
+ Computes the dijkstra distances to the sources
+ Parameters:
+	 - he: the HalfEdge data structure
+	 - sources: the list of sources, given as their indices in he / V
+	 - nbSources: the number of sources
+ Returns:
+	- the matrix of distances
+*/
+void ComputeDijkstra(HalfedgeDS he, int *sources, int nbSources) {
+	DijkstraDistances = VectorXd::Constant(he.sizeOfVertices(), std::numeric_limits<double>::infinity());
+	for (int i = 0; i < nbSources; i++) DijkstraDistances(sources[i]) = 0;
+	int* queue = new int[he.sizeOfHalfedges()];
+	int head = 0; // The head of the queue : vertices to be processed
+	int tail = 0; // The tail of the queue : the last inserted vertex
+	for (int i = 0; i < nbSources; i++) {
+		DijkstraDistances(sources[i]) = 0;
+		queue[tail] = sources[i];
+		tail++;
+	}
+	while (head != tail) {
+		int v = queue[head]; // vertex to be processed
+		head++;
+		int edge = he.getEdge(v); // edge pointing towards v
+		do {
+			int neigbour = he.getTarget(he.getOpposite(edge));
+			double edgeLength = (V.row(neigbour) - V.row(v)).norm();
+			if (DijkstraDistances(neigbour) > DijkstraDistances(v) + edgeLength) {
+				DijkstraDistances(neigbour) = DijkstraDistances(v) + edgeLength;
+				queue[tail] = neigbour;
+				tail++;
+			}
+			edge = he.getOpposite(he.getNext(edge));
+		} while (edge != he.getEdge(v));
+	}
+}
 /**
 * Rescale the mesh in [0,1]^3
 **/
@@ -370,6 +408,13 @@ void computeGeodesicDisctance() {
 // This function is called every time a keyboard button is pressed
 bool key_down(igl::opengl::glfw::Viewer& viewer, unsigned char key, int modifier) {
 	switch (key) {
+	case 'd':
+	{
+		MatrixXd C;
+		igl::jet(DijkstraDistances, true, C); // Assign per-vertex colors
+		viewer.data().set_colors(C); // Add per-vertex colors
+		return true;
+	}
 	case '1':
 	{
 		MatrixXd C;
@@ -524,6 +569,21 @@ int main(int argc, char *argv[]) {
 	computeB(he);
 	computeGeodesicDisctance();
 	setInitialTemperature();
+	
+	// Dijkstra method
+	int nbSources = 1;
+	int* sources = new int[nbSources];
+	for (int i = 0; i < nbSources; i++) sources[i] = i; // Set the indices of the sources. We just take the i first vertices
+	ComputeDijkstra(he, sources, 1);
+	std::cout << "Done computing Dijkstra" << std::endl;
+	std::cout << "Checking format : " << std::endl;
+	std::cout << "nb lines Geodesic : " << GeodesicDistance.rows() << " nb lines Dijkstra : " << DijkstraDistances.rows() << std::endl;
+	std::cout << "nb cols Geodesic : " << GeodesicDistance.cols() << " nb lines Dijkstra : " << DijkstraDistances.cols() << std::endl;
+	for (int i = 0; i < V.rows(); i++) {
+		std::cout << "Distance to point : " << V.row(i) << std::endl;
+		std::cout << "Geodesic distance : " << GeodesicDistance.row(i);
+		std::cout << "  Dijkstra distance : " << DijkstraDistances.row(i) << std::endl;
+	}
 
 	auto totalfinish = std::chrono::high_resolution_clock::now();
 	std::chrono::duration<double> totalelapsed = totalfinish - totalstart;
