@@ -366,7 +366,7 @@ void computeTimeStepImplicit() {
 * Compute NormalizedTemperatureGradient and EdgesNormalizedTemperatureGradient
 **/
 void computeNormalizedTemperatureGradient(HalfedgeDS he) {
-	std::cout << "Computing NormalizedTemperatureGradient and EdgesNormalizedTemperatureGradient..." << std::endl;
+	std::cout << "Computing NormalizedTemperatureGradient and CenterOfFaces..." << std::endl;
 	auto start = std::chrono::high_resolution_clock::now(); // for measuring time performances
 	NormalizedTemperatureGradient = MatrixXd::Zero(F.rows(), 3);
 	CenterOfFaces = MatrixXd::Zero(F.rows(), 3);
@@ -388,7 +388,7 @@ void computeNormalizedTemperatureGradient(HalfedgeDS he) {
 	}
 	auto finish = std::chrono::high_resolution_clock::now();
 	std::chrono::duration<double> elapsed = finish - start;
-	std::cout << "Computing time for NormalizedTemperatureGradient and EdgesNormalizedTemperatureGradient: " << elapsed.count() << " s\n";
+	std::cout << "Computing time for NormalizedTemperatureGradient and CenterOfFaces: " << elapsed.count() << " s\n";
 }
 
 /**
@@ -454,7 +454,6 @@ void TheoreticalSphereDistance() {
 		}
 	}
 	TheoreticalShereDistance = D.col(0);
-	std::cout << "TSD " << TheoreticalShereDistance << std::endl;
 }
 
 /*
@@ -475,6 +474,13 @@ void draw_normals(igl::opengl::glfw::Viewer& viewer, const MatrixXd& V, const Ma
 // This function is called every time a keyboard button is pressed
 bool key_down(igl::opengl::glfw::Viewer& viewer, unsigned char key, int modifier) {
 	switch (key) {
+	case 'R':
+	{
+		MatrixXd C;
+		igl::jet(B, true, C); // Assign per-vertex colors
+		viewer.data().set_colors(C); // Add per-vertex colors
+		return true;
+	}
 	case 'S':
 	{
 		MatrixXd C;
