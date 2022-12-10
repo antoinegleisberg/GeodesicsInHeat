@@ -19,16 +19,16 @@ using namespace std;
 MatrixXd V;
 MatrixXi F;
 
-MatrixXd Phi; // Final distance function
-MatrixXd Temperature; // Temperature
-MatrixXd NormalizedTemperatureGradient; // Normalized gradient of Temperature
+MatrixXd GeodesicDistance; // Final distance function
+MatrixXd Temperature; // Temperature, called U in the paper
+MatrixXd NormalizedTemperatureGradient; // Normalized gradient of Temperature, called X in the paper
 MatrixXd B; // Integrated divergences of NormalizedTemperatureGradient
 SparseMatrix<double> CotAlpha; // Matrix of cot(alpha_ij)
 SparseMatrix<double> CotBeta; // Matrix of cot(beta_ij)
-SparseMatrix<double> D; // Length of edges
+SparseMatrix<double> Distances; // Length of edges
 double dt; // time step
 double h; // mean spacing between adjacent nodes
-MatrixXd A; // Diagonal of vertex area
+MatrixXd A; // Distancesiagonal of vertex area; Voronoi area of each vertex
 SparseMatrix<double> Lc; // Laplace-Berltrami matrix, but only cotan operator
 
 SparseMatrix<double> SparseMatrixExplicit;
@@ -45,6 +45,44 @@ MatrixXd lib_N_vertices; // computed using face-vertex structure of LibiGL
 MatrixXi lib_Deg_vertices; // computed using face-vertex structure of LibiGL
 MatrixXd he_N_vertices; // computed using the HalfEdge data structure
 
+VectorXd DijkstraDistances; // computed using Dijkstra algorithm
+
+/*
+ Computes the dijkstra distances to the sources
+ Parameters:
+	 - he: the HalfEdge data structure
+	 - sources: the list of sources, given as their indices in he / V
+	 - nbSources: the number of sources
+ Returns:
+	- the matrix of distances
+*/
+void ComputeDijkstra(HalfedgeDS he, int *sources, int nbSources) {
+	DijkstraDistances = VectorXd::Constant(he.sizeOfVertices(), std::numeric_limits<double>::infinity());
+	for (int i = 0; i < nbSources; i++) DijkstraDistances(sources[i]) = 0;
+	int* queue = new int[he.sizeOfHalfedges()];
+	int head = 0; // The head of the queue : vertices to be processed
+	int tail = 0; // The tail of the queue : the last inserted vertex
+	for (int i = 0; i < nbSources; i++) {
+		DijkstraDistances(sources[i]) = 0;
+		queue[tail] = sources[i];
+		tail++;
+	}
+	while (head != tail) {
+		int v = queue[head]; // vertex to be processed
+		head++;
+		int edge = he.getEdge(v); // edge pointing towards v
+		do {
+			int neigbour = he.getTarget(he.getOpposite(edge));
+			double edgeLength = (V.row(neigbour) - V.row(v)).norm();
+			if (DijkstraDistances(neigbour) > DijkstraDistances(v) + edgeLength) {
+				DijkstraDistances(neigbour) = DijkstraDistances(v) + edgeLength;
+				queue[tail] = neigbour;
+				tail++;
+			}
+			edge = he.getOpposite(he.getNext(edge));
+		} while (edge != he.getEdge(v));
+	}
+}
 /**
 * Rescale the mesh in [0,1]^3
 **/
@@ -62,30 +100,6 @@ void rescale() {
 	std::chrono::duration<double> elapsed = finish - start;
 	std::cout << "Computing time for rescaling: " << elapsed.count() << " s\n";
 	return;
-	
-	// old version : Aude if you read and agree please delete
-	double minx = V.row(0)[0];
-	double maxx = V.row(0)[0];
-	double miny = V.row(0)[1];
-	double maxy = V.row(0)[1];
-	double minz = V.row(0)[2];
-	double maxz = V.row(0)[2];
-	for (int i = 0; i < V.rows(); i++) {
-		minx = min(minx, V.row(i)[0]);
-		maxx = max(maxx, V.row(i)[0]);
-		miny = min(miny, V.row(i)[1]);
-		maxy = max(maxy, V.row(i)[1]);
-		minz = min(minz, V.row(i)[2]);
-		maxz = max(maxz, V.row(i)[2]);
-	}
-	double lenx = maxx - minx;
-	double leny = maxy - miny;
-	double lenz = maxz - minz;
-	for (int i = 0; i < V.rows(); i++) {
-		V.row(i)[0] = (V.row(i)[0] - minx) / lenx;
-		V.row(i)[1] = (V.row(i)[1] - miny) / leny;
-		V.row(i)[2] = (V.row(i)[2] - minz) / lenz;
-	}
 }
 
 /**
@@ -93,14 +107,14 @@ void rescale() {
 * Turn around vertex 'v' in CCW order
 **/
 int vertexDegreeCCW(HalfedgeDS he, int v) {
-	int vDCCW = 1;
+	int vertexDegree = 1;
 	int e = he.getEdge(v);
-	int pe = he.getOpposite(he.getNext(e));
-	while (pe != e) {
-		vDCCW++;
-		pe = he.getOpposite(he.getNext(pe));
+	int nextEdge = he.getOpposite(he.getNext(e));
+	while (nextEdge != e) {
+		vertexDegree++;
+		nextEdge = he.getOpposite(he.getNext(nextEdge));
 	}
-	return vDCCW;
+	return vertexDegree;
 }
 
 /**
@@ -118,21 +132,30 @@ void vertexNormals(HalfedgeDS he) {
 		Vector3d v(V.row(i2) - V.row(i1));
 		Vector3d w = u.cross(v);
 		w.normalize();
+		he_N_vertices.row(i0) += w;
+		he_N_vertices.row(i1) += w;
+		he_N_vertices.row(i2) += w;
+		
+		// @Aude : ok pour ce changement ?
+		/*
+		w.normalize();
 		MatrixXd n = MatrixXd::Zero(1, 3);
 		n(0) = w[0]; n(1) = w[1]; n(2) = w[2];
 		he_N_vertices.row(i0) += n;
 		he_N_vertices.row(i1) += n;
 		he_N_vertices.row(i2) += n;
+		*/
 	}
-	for (int i = 0; i < V.rows(); i++)
-		he_N_vertices.row(i).normalize();
+	he_N_vertices.rowwise().normalize();
+	// @Aude : ok pour ce changement ?
+	// for (int i = 0; i < V.rows(); i++) he_N_vertices.row(i).normalize();
 	auto finish = std::chrono::high_resolution_clock::now();
-	std::chrono::duration<double> elapsedhe = finish - start;
-	std::cout << "Computing time using vertexNormals: " << elapsedhe.count() << " s\n";
+	std::chrono::duration<double> elapsed = finish - start;
+	std::cout << "Computing time using vertexNormals: " << elapsed.count() << " s" << std::endl;
 }
 
 /**
-* Compute NormalizedTemperatureGradient (he)
+* Initialise Temperature matrix
 **/
 void setInitialTemperature() {
 	Temperature = MatrixXd::Zero(V.rows(), 1);
@@ -140,22 +163,21 @@ void setInitialTemperature() {
 }
 
 /**
-* Compute CotAlpha, CotBeta, D and dt (he)
+* Compute CotAlpha, CotBeta, Distances and dt (he)
 **/
 void computeAlphaBetaDdt(HalfedgeDS he) {
-	std::cout << "Computing CotAlpha, CotBeta, D and dt..." << std::endl;
-	auto start = std::chrono::high_resolution_clock::now(); // for measuring time performances
+	std::cout << "Computing CotAlpha, CotBeta, Distances and dt..." << std::endl;
+	auto start = std::chrono::high_resolution_clock::now();
 	std::vector<Eigen::Triplet<double>> stackCotAlpha{};
 	std::vector<Eigen::Triplet<double>> stackCotBeta{};
 	std::vector<Eigen::Triplet<double>> stackD{};
 	dt = 0;
 	for (int i = 0; i < he.sizeOfVertices(); i++) {
-		int vDCW = vertexDegreeCCW(he, i);
-		int e = he.getEdge(i); // edge from x_j to x_i
-		int pe = he.getOpposite(he.getNext(e)); // edge from x_k to x_i
-		int j = he.getTarget(he.getOpposite(e)); // vertex before i
-		int k = he.getTarget(he.getOpposite(pe)); // vertex after i
-		for (int l = 0; l < vDCW; l++) {
+		int e = he.getEdge(i); // edge pointing from j towards i
+		int nextEdge = he.getOpposite(he.getNext(e)); // edge pointing from k towards i
+		int j = he.getTarget(he.getOpposite(e));
+		int k = he.getTarget(he.getOpposite(nextEdge));
+		for (int l = 0; l < vertexDegreeCCW(he, i); l++) {
 			Vector3d ek(V.row(i) - V.row(j));
 			Vector3d ej(V.row(k) - V.row(i));
 			Vector3d ei(V.row(j) - V.row(k));
@@ -166,32 +188,34 @@ void computeAlphaBetaDdt(HalfedgeDS he) {
 			stackCotBeta.push_back(Eigen::Triplet<double>(i, k, 1 / tan(acos(ek.dot(-ei) / (ek.norm() + ei.norm()))))); // angle at j
 			//stackCotBeta.push_back(Eigen::Triplet<double>(i, j, 1 / tan(acos(ej.dot(-ei) / (ej.norm() + ei.norm()))))); // angle at k //False
 			//stackCotAlpha.push_back(Eigen::Triplet<double>(i, k, 1 / tan(acos(ek.dot(-ej) / (ek.norm() + ej.norm()))))); // angle at j //False
-			j = he.getTarget(he.getOpposite(pe));
-			pe = he.getOpposite(he.getNext(pe));
-			k = he.getTarget(he.getOpposite(pe));
+			
+			j = k;
+			nextEdge = he.getOpposite(he.getNext(nextEdge));
+			k = he.getTarget(he.getOpposite(nextEdge));
 		}
 	}
 	CotAlpha = SparseMatrix<double>(he.sizeOfVertices(), he.sizeOfVertices());
 	CotBeta = SparseMatrix<double>(he.sizeOfVertices(), he.sizeOfVertices());
-	D = SparseMatrix<double>(he.sizeOfVertices(), he.sizeOfVertices());
+	Distances = SparseMatrix<double>(he.sizeOfVertices(), he.sizeOfVertices());
 	CotAlpha.setFromTriplets(stackCotAlpha.begin(), stackCotAlpha.end());
 	CotBeta.setFromTriplets(stackCotBeta.begin(), stackCotBeta.end());
-	D.setFromTriplets(stackD.begin(), stackD.end());
+	Distances.setFromTriplets(stackD.begin(), stackD.end());
+	
 	auto finish = std::chrono::high_resolution_clock::now();
 	std::chrono::duration<double> elapsed = finish - start;
-	std::cout << "Computing time for CotAlpha, CotBeta, D and dt: " << elapsed.count() << " s\n";
+	std::cout << "Computing time for CotAlpha, CotBeta, Distances and dt: " << elapsed.count() << " s\n";
 }
 
 /**
-* Compute h
+* Compute h as the mean of the edge lengths
 **/
 void computeh() {
 	std::cout << "Computing h..." << std::endl;
 	auto start = std::chrono::high_resolution_clock::now(); // for measuring time performances
-	if (D.nonZeros() == 0)
+	if (Distances.nonZeros() == 0)
 		h = 0;
 	else
-		h = D.sum() / D.nonZeros();
+		h = Distances.sum() / Distances.nonZeros();
 	auto finish = std::chrono::high_resolution_clock::now();
 	std::chrono::duration<double> elapsed = finish - start;
 	std::cout << "Computing time for h: " << elapsed.count() << " s\n";
@@ -206,10 +230,10 @@ void computeA(HalfedgeDS he) {
 	A = MatrixXd::Zero(he.sizeOfVertices(), 1);
 	for (int i = 0; i < he.sizeOfVertices(); i++) {
 		int vDCW = vertexDegreeCCW(he, i);
-		int e = he.getEdge(i); // edge from x_j to x_i
+		int e = he.getEdge(i); // edge from j to i
 		int j = he.getTarget(he.getOpposite(e)); // vertex before i
 		for (int k = 0; k < vDCW; k++) {
-			A(i) += D.coeffRef(i, j) * D.coeffRef(i, j) * (CotAlpha.coeffRef(i, j) + CotBeta.coeffRef(i, j));
+			A(i) += Distances.coeffRef(i, j) * Distances.coeffRef(i, j) * (CotAlpha.coeffRef(i, j) + CotBeta.coeffRef(i, j));
 			e = he.getOpposite(he.getNext(e));
 			j = he.getTarget(he.getOpposite(e));
 		}
@@ -255,7 +279,9 @@ void computeL(HalfedgeDS he) {
 void computeSparseMatrixExplicit() {
 	std::cout << "Computing SparseMatrixExplicit..." << std::endl;
 	auto start = std::chrono::high_resolution_clock::now(); // for measuring time performances
+	
 	SparseMatrixExplicit = dt * A.asDiagonal() * Lc;
+	
 	auto finish = std::chrono::high_resolution_clock::now();
 	std::chrono::duration<double> elapsed = finish - start;
 	std::cout << "Computing time for SparseMatrixExplicit: " << elapsed.count() << " s\n";
@@ -267,8 +293,10 @@ void computeSparseMatrixExplicit() {
 void computeSolverImplicit() {
 	std::cout << "Computing SolverImplicit..." << std::endl;
 	auto start = std::chrono::high_resolution_clock::now(); // for measuring time performances
+	
 	LeftSideImplicit = MatrixXd::Identity(A.rows(), A.rows()) - dt * A.asDiagonal() * Lc;
 	SolverImplicit.compute(LeftSideImplicit);
+	
 	auto finish = std::chrono::high_resolution_clock::now();
 	std::chrono::duration<double> elapsed = finish - start;
 	std::cout << "Computing time for SolverImplicit: " << elapsed.count() << " s\n";
@@ -292,6 +320,7 @@ void computeTimeStepExplicit() {
 void computeTimeStepImplicit() {
 	//std::cout << "Computing one time step (implicit)..." << std::endl;
 	//auto start = std::chrono::high_resolution_clock::now(); // for measuring time performances
+	// @ Aude : pourquoi pas += pour celui la ?
 	Temperature = SolverImplicit.solve(Temperature);
 	//auto finish = std::chrono::high_resolution_clock::now();
 	//std::chrono::duration<double> elapsed = finish - start;
@@ -301,7 +330,7 @@ void computeTimeStepImplicit() {
 /**
 * Compute NormalizedTemperatureGradient
 **/
-void computeX(HalfedgeDS he) {
+void computeNormalizedTemperatureGradient(HalfedgeDS he) {
 	std::cout << "Computing NormalizedTemperatureGradient..." << std::endl;
 	auto start = std::chrono::high_resolution_clock::now(); // for measuring time performances
 	MatrixXd Seen = MatrixXd::Zero(F.rows(), 1);
@@ -340,9 +369,9 @@ void computeB(HalfedgeDS he) {
 	for (int i = 0; i < he.sizeOfVertices(); i++) {
 		int vDCW = vertexDegreeCCW(he, i);
 		int e = he.getEdge(i); // edge from x_2 to x_i
-		int pe = he.getOpposite(he.getNext(e)); // edge from x_1 to x_i
+		int nextEdge = he.getOpposite(he.getNext(e)); // edge from x_1 to x_i
 		int v1 = he.getTarget(he.getOpposite(e)); // vertex after i
-		int v2 = he.getTarget(he.getOpposite(pe)); // vertex before i
+		int v2 = he.getTarget(he.getOpposite(nextEdge)); // vertex before i
 		int f = he.getFace(e);
 		for (int k = 0; k < vDCW; k++) {
 			if (f >= 0) {
@@ -351,10 +380,10 @@ void computeB(HalfedgeDS he) {
 				Vector3d x12(NormalizedTemperatureGradient.row(f));
 				B(i) += (CotBeta.coeffRef(i, v2) * e1.dot(x12) + CotAlpha.coeffRef(i, v1) * e2.dot(x12)) / 2;
 			}
-			v1 = he.getTarget(he.getOpposite(pe));
-			pe = he.getOpposite(he.getNext(pe));
-			v2 = he.getTarget(he.getOpposite(pe));
-			f = he.getFace(pe);
+			v1 = he.getTarget(he.getOpposite(nextEdge));
+			nextEdge = he.getOpposite(he.getNext(nextEdge));
+			v2 = he.getTarget(he.getOpposite(nextEdge));
+			f = he.getFace(nextEdge);
 		}
 	}
 	auto finish = std::chrono::high_resolution_clock::now();
@@ -363,26 +392,33 @@ void computeB(HalfedgeDS he) {
 }
 
 /**
-* Compute Phi
+* Compute GeodesicDistance
 **/
-void computePhi() {
-	std::cout << "Computing Phi..." << std::endl;
+void computeGeodesicDisctance() {
+	std::cout << "Computing GeodesicDistance..." << std::endl;
 	auto start = std::chrono::high_resolution_clock::now(); // for measuring time performances
 	SolverFinal.compute(Lc);
-	Phi = SolverFinal.solve(B);
+	GeodesicDistance = SolverFinal.solve(B);
 	auto finish = std::chrono::high_resolution_clock::now();
 	std::chrono::duration<double> elapsed = finish - start;
-	std::cout << "Computing time for Phi: " << elapsed.count() << " s\n";
+	std::cout << "Computing time for GeodesicDistance: " << elapsed.count() << " s\n";
 }
 
 
 // This function is called every time a keyboard button is pressed
 bool key_down(igl::opengl::glfw::Viewer& viewer, unsigned char key, int modifier) {
 	switch (key) {
+	case 'd':
+	{
+		MatrixXd C;
+		igl::jet(DijkstraDistances, true, C); // Assign per-vertex colors
+		viewer.data().set_colors(C); // Add per-vertex colors
+		return true;
+	}
 	case '1':
 	{
 		MatrixXd C;
-		igl::jet(Phi, true, C); // Assign per-vertex colors
+		igl::jet(GeodesicDistance, true, C); // Assign per-vertex colors
 		viewer.data().set_colors(C); // Add per-vertex colors
 		return true;
 	}
@@ -529,10 +565,25 @@ int main(int argc, char *argv[]) {
 	auto finish = std::chrono::high_resolution_clock::now();
 	std::chrono::duration<double> elapsed = finish - start;
 	std::cout << "Computing time for " << nbStepsTotal << " steps: " << elapsed.count() << " s\n";
-	computeX(he);
+	computeNormalizedTemperatureGradient(he);
 	computeB(he);
-	computePhi();
+	computeGeodesicDisctance();
 	setInitialTemperature();
+	
+	// Dijkstra method
+	int nbSources = 1;
+	int* sources = new int[nbSources];
+	for (int i = 0; i < nbSources; i++) sources[i] = i; // Set the indices of the sources. We just take the i first vertices
+	ComputeDijkstra(he, sources, 1);
+	std::cout << "Done computing Dijkstra" << std::endl;
+	std::cout << "Checking format : " << std::endl;
+	std::cout << "nb lines Geodesic : " << GeodesicDistance.rows() << " nb lines Dijkstra : " << DijkstraDistances.rows() << std::endl;
+	std::cout << "nb cols Geodesic : " << GeodesicDistance.cols() << " nb lines Dijkstra : " << DijkstraDistances.cols() << std::endl;
+	for (int i = 0; i < V.rows(); i++) {
+		std::cout << "Distance to point : " << V.row(i) << std::endl;
+		std::cout << "Geodesic distance : " << GeodesicDistance.row(i);
+		std::cout << "  Dijkstra distance : " << DijkstraDistances.row(i) << std::endl;
+	}
 
 	auto totalfinish = std::chrono::high_resolution_clock::now();
 	std::chrono::duration<double> totalelapsed = totalfinish - totalstart;
