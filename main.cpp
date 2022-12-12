@@ -208,7 +208,6 @@ void computeVoronoiArea(HalfedgeDS he) {
 			j = he.getTarget(he.getOpposite(e));
 		}
 		A(i) /= 8;
-		// A(i) = 8 / A(i);
 	}
 	auto finish = std::chrono::high_resolution_clock::now();
 	std::chrono::duration<double> elapsed = finish - start;
@@ -387,7 +386,6 @@ void computeB(HalfedgeDS he) {
 			f = he.getFace(nextEdge);
 		}
 	}
-	
 	auto finish = std::chrono::high_resolution_clock::now();
 	std::chrono::duration<double> elapsed = finish - start;
 	std::cout << "Computing time for B: " << elapsed.count() << " s\n";
@@ -423,6 +421,22 @@ void TheoreticalSphereDistance() {
 		}
 	}
 	TheoreticalShereDistance = D.col(0);
+}
+
+/**
+* Print Mean Absolute Error (MAE) on the sphere
+**/
+void MAESphere() {
+	float hm = 0.;
+	float dijk = 0;
+	for (int i = 0; i < V.rows(); i++) {
+		hm += abs(GeodesicDistance(i) - TheoreticalShereDistance(i));
+		dijk += abs(DijkstraDistances(i) - TheoreticalShereDistance(i));
+	}
+	hm /= V.rows();
+	dijk /= V.rows();
+	std::cout << "MAE on the sphere via the heat method: " << hm << std::endl;
+	std::cout << "MAE on the sphere via the Dijkstra-based method: " << dijk << std::endl;
 }
 
 // This function is called every time a keyboard button is pressed
@@ -610,14 +624,12 @@ int main(int argc, char* argv[]) {
 	// - 1000000 for sphere
 	// - 2000000 for nefertiti ?
 	// - 800 for star ?
-	
 	std::cout << "Computing steps..." << std::endl;
 	auto start = std::chrono::high_resolution_clock::now();
 	for (int i = 0; i < nbStepsTotal; i++) computeTimeStepExplicit();
 	auto finish = std::chrono::high_resolution_clock::now();
 	std::chrono::duration<double> elapsed = finish - start;
 	std::cout << "Computing time for " << nbStepsTotal << " steps: " << elapsed.count() << " s\n";
-	
 	computeNormalizedTemperatureGradient(he);
 	computeB(he);
 	computeGeodesicDistance();
@@ -625,12 +637,14 @@ int main(int argc, char* argv[]) {
 
 	// Dijkstra method
 	ComputeDijkstra(he);
+
 	/*for (int i = 0; i < V.rows(); i++) {
 		std::cout << "Distance to point : " << V.row(i) << std::endl;
 		std::cout << "Geodesic distance : " << GeodesicDistance.row(i);
 		std::cout << "  Dijkstra distance : " << DijkstraDistances.row(i) << std::endl;
 	}*/
 
+	/*
 	cout << "GeodesicDistance.mean():      " << GeodesicDistance.mean() << endl;
 	cout << "GeodesicDistance.minCoeff():  " << GeodesicDistance.minCoeff() << endl;
 	cout << "GeodesicDistance.maxCoeff():  " << GeodesicDistance.maxCoeff() << endl;
@@ -638,6 +652,7 @@ int main(int argc, char* argv[]) {
 	cout << "DijkstraDistances.mean():      " << DijkstraDistances.mean() << endl;
 	cout << "DijkstraDistances.minCoeff():  " << DijkstraDistances.minCoeff() << endl;
 	cout << "DijkstraDistances.maxCoeff():  " << DijkstraDistances.maxCoeff() << endl;
+	*/
 
 	auto totalfinish = std::chrono::high_resolution_clock::now();
 	std::chrono::duration<double> totalelapsed = totalfinish - totalstart;
@@ -647,6 +662,9 @@ int main(int argc, char* argv[]) {
 
 	// Theoretical sphere distance
 	TheoreticalSphereDistance();
+
+	// MAE on the sphere ; to comment if the mesh is not the sphere
+	MAESphere();
 
 	// Compute per-vertex normals
 	igl::per_vertex_normals(V, F, N_vertices);
