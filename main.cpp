@@ -51,6 +51,100 @@ MatrixXd N_vertices; // Computed calling pre-defined functions of LibiGL
 
 MatrixXd TheoreticalShereDistance; // Computed using the theoretical formula
 
+
+void GenerateCubeMesh(MatrixXd& V, MatrixXi& F, int nbSubdivisions) {
+	V = MatrixXd::Zero(8, 3);
+	F = MatrixXi::Zero(12, 3);
+	V.resize(8, 3);
+	F.resize(12, 3);
+	V << 0, 0, 0,
+		1, 0, 0,
+		1, 1, 0,
+		0, 1, 0,
+		0, 0, 1,
+		1, 0, 1,
+		1, 1, 1,
+		0, 1, 1;
+	F << 0, 1, 2,
+		0, 2, 3,
+		1, 5, 6,
+		1, 6, 2,
+		5, 4, 7,
+		5, 7, 6,
+		4, 0, 3,
+		4, 3, 7,
+		3, 2, 6,
+		3, 6, 7,
+		4, 5, 1,
+		4, 1, 0;
+	
+	for (int i = 0; i < nbSubdivisions; i++) {
+		MatrixXd newV = MatrixXd::Zero(4 * V.rows(), 3);
+		MatrixXi newF = MatrixXi::Zero(4 * F.rows(), 3);
+		for (int j = 0; j < V.rows(); j++) newV.row(j) = V.row(j);
+		
+		std::map<pair<int, int>, int> middleIndices = std::map<pair<int, int>, int>();
+
+		int f_idx = 0;
+		int v_idx = V.rows();
+		
+		for (int f = 0; f < F.rows(); f++) {
+			
+			int corner1 = F(f, 0); int corner1_idx;
+			int corner2 = F(f, 1); int corner2_idx;
+			int corner3 = F(f, 2); int corner3_idx;
+			
+			Vector3d middle1 = (V.row(corner2) + V.row(corner3)) / 2; int middle1_idx;
+			Vector3d middle2 = (V.row(corner1) + V.row(corner3)) / 2; int middle2_idx;
+			Vector3d middle3 = (V.row(corner1) + V.row(corner2)) / 2; int middle3_idx;
+			
+			if (middleIndices.find(pair<int, int>(corner1, corner2)) == middleIndices.end()) {
+				middle1_idx = v_idx;
+				newV.row(v_idx) = middle3;
+				middleIndices[pair<int, int>(corner1, corner2)] = v_idx;
+				middleIndices[pair<int, int>(corner2, corner1)] = v_idx;
+				v_idx++;
+			}
+			else {
+				middle1_idx = middleIndices[pair<int, int>(corner1, corner2)];
+			}
+			if (middleIndices.find(pair<int, int>(corner1, corner3)) == middleIndices.end()) {
+				middle2_idx = v_idx;
+				newV.row(v_idx) = middle2;
+				middleIndices[pair<int, int>(corner1, corner3)] = v_idx;
+				middleIndices[pair<int, int>(corner3, corner1)] = v_idx;
+				v_idx++;
+			}
+			else {
+				middle2_idx = middleIndices[pair<int, int>(corner1, corner3)];
+			}
+			if (middleIndices.find(pair<int, int>(corner2, corner3)) == middleIndices.end()) {
+				middle3_idx = v_idx;
+				newV.row(v_idx) = middle1;
+				middleIndices[pair<int, int>(corner2, corner3)] = v_idx;
+				middleIndices[pair<int, int>(corner3, corner2)] = v_idx;
+				v_idx++;
+			}
+			else {
+				middle3_idx = middleIndices[pair<int, int>(corner2, corner3)];
+			}
+			
+			newF.row(f_idx) << corner1_idx, middle3_idx, middle2_idx;
+			f_idx++;
+			newF.row(f_idx) << middle3_idx, corner2_idx, middle1_idx;
+			f_idx++;
+			newF.row(f_idx) << middle2_idx, middle1_idx, corner3_idx;
+			f_idx++;
+			newF.row(f_idx) << middle2_idx, middle3_idx, middle1_idx;
+			f_idx++;
+		}
+		
+		V = newV;
+		F = newF;
+	}
+}
+
+
 /**
 * Rescale the mesh in [0,1]^3
 **/
@@ -603,6 +697,9 @@ int main(int argc, char* argv[]) {
 	//igl::readOFF("../data/torus_33.off", V, F);
 	//igl::readOFF("../data/twisted.off", V, F);	// 0 boundary -> WORKS !
 	//igl::readOFF("../data/output.off", V, F);		// 0 boundary -> WORKS !
+
+	// Replace the OFF mesh with a cube
+	// GenerateCubeMesh(V, F, 0);
 
 	//print the number of mesh elements
 	std::cout << "Points: " << V.rows() << std::endl;
