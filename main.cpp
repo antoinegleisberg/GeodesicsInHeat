@@ -22,21 +22,25 @@ MatrixXi F;
 const int nbSources = 1; // Number of sources of heat
 int Sources[nbSources] = { 0 }; // Sources of heat
 
+int nbSteps = 1000; // Number of time steps between animations
+int nbStepsTotal = 1000000; // Number of time steps between animations
+
 VectorXd DijkstraDistances; // Computed using Dijkstra algorithm
 
 MatrixXd GeodesicDistance; // Final distance function
-int nbSteps = 1000; // Number of time steps between animations
-int nbStepsTotal = 1000000; // Number of time steps between animations
+
 MatrixXd Temperature; // Temperature, called U in the paper
 MatrixXd NormalizedTemperatureGradient; // Normalized gradient of Temperature, called X in the paper
 MatrixXd CenterOfFaces; // Normalized gradient of Temperature, called X in the paper
 MatrixXd B; // Integrated divergences of NormalizedTemperatureGradient
+
 SparseMatrix<double> CotAlpha; // Matrix of cot(alpha_ij)
 SparseMatrix<double> CotBeta; // Matrix of cot(beta_ij)
 SparseMatrix<double> Distances; // Length of edges
+
 double dt; // Time step
 double h; // Mean spacing between adjacent nodes
-MatrixXd A; // Diagonal of vertex area; or Voronoi area of each vertex (if using computeVoronoiArea)
+MatrixXd A; // Vector of vertex areas; can be voronoi or barycentric areas
 SparseMatrix<double> Lc; // Laplace-Berltrami matrix, but only cotan operator
 SparseMatrix<double> SparseMatrixExplicit;
 SparseMatrix<double> LeftSideImplicit;
@@ -52,7 +56,7 @@ MatrixXd TheoreticalShereDistance; // Computed using the theoretical formula
 **/
 void rescale() {
 	std::cout << "Rescaling..." << std::endl;
-	auto start = std::chrono::high_resolution_clock::now(); // for measuring time performances
+	auto start = std::chrono::high_resolution_clock::now();
 	VectorXd minV = V.colwise().minCoeff();
 	VectorXd maxV = V.colwise().maxCoeff();
 	VectorXd range = maxV - minV;
@@ -177,11 +181,11 @@ void computeAlphaBetaDdt(HalfedgeDS he) {
 **/
 void computeh() {
 	std::cout << "Computing h..." << std::endl;
-	auto start = std::chrono::high_resolution_clock::now(); // for measuring time performances
-	if (Distances.nonZeros() == 0)
-		h = 0;
-	else
-		h = Distances.sum() / Distances.nonZeros();
+	auto start = std::chrono::high_resolution_clock::now();
+	
+	if (Distances.nonZeros() == 0) h = 0;
+	else h = Distances.sum() / Distances.nonZeros();
+	
 	auto finish = std::chrono::high_resolution_clock::now();
 	std::chrono::duration<double> elapsed = finish - start;
 	std::cout << "Computing time for h: " << elapsed.count() << " s\n";
@@ -214,7 +218,7 @@ void computeVoronoiArea(HalfedgeDS he) {
 /**
 * Compute A
 **/
-void computeArea(HalfedgeDS he) {
+void computeBarycentricArea(HalfedgeDS he) {
 	std::cout << "Computing A..." << std::endl;
 	auto start = std::chrono::high_resolution_clock::now();
 	A = MatrixXd::Zero(he.sizeOfVertices(), 1);
@@ -245,7 +249,8 @@ void computeArea(HalfedgeDS he) {
 **/
 void computeL(HalfedgeDS he) {
 	std::cout << "Computing L..." << std::endl;
-	auto start = std::chrono::high_resolution_clock::now(); // for measuring time performances
+	auto start = std::chrono::high_resolution_clock::now();
+	
 	std::vector<Eigen::Triplet<double>> stackL{};
 	for (int i = 0; i < he.sizeOfVertices(); i++) {
 		int vDCW = vertexDegreeCCW(he, i);
@@ -263,6 +268,7 @@ void computeL(HalfedgeDS he) {
 	}
 	Lc = SparseMatrix<double>(he.sizeOfVertices(), he.sizeOfVertices());
 	Lc.setFromTriplets(stackL.begin(), stackL.end());
+	
 	auto finish = std::chrono::high_resolution_clock::now();
 	std::chrono::duration<double> elapsed = finish - start;
 	std::cout << "Computing time for L: " << elapsed.count() << " s\n";
@@ -273,7 +279,7 @@ void computeL(HalfedgeDS he) {
 **/
 void computeSparseMatrixExplicit() {
 	std::cout << "Computing SparseMatrixExplicit..." << std::endl;
-	auto start = std::chrono::high_resolution_clock::now(); // for measuring time performances
+	auto start = std::chrono::high_resolution_clock::now();
 
 	SparseMatrixExplicit = dt * A.asDiagonal() * Lc;
 
@@ -287,7 +293,7 @@ void computeSparseMatrixExplicit() {
 **/
 void computeSolverImplicit() {
 	std::cout << "Computing SolverImplicit..." << std::endl;
-	auto start = std::chrono::high_resolution_clock::now(); // for measuring time performances
+	auto start = std::chrono::high_resolution_clock::now();
 
 	LeftSideImplicit = MatrixXd::Identity(A.rows(), A.rows()) - dt * A.asDiagonal() * Lc;
 	SolverImplicit.compute(LeftSideImplicit);
@@ -327,7 +333,8 @@ void computeTimeStepImplicit() {
 **/
 void computeNormalizedTemperatureGradient(HalfedgeDS he) {
 	std::cout << "Computing NormalizedTemperatureGradient and CenterOfFaces..." << std::endl;
-	auto start = std::chrono::high_resolution_clock::now(); // for measuring time performances
+	auto start = std::chrono::high_resolution_clock::now();
+	
 	NormalizedTemperatureGradient = MatrixXd::Zero(F.rows(), 3);
 	CenterOfFaces = MatrixXd::Zero(F.rows(), 3);
 	for (int f = 0; f < F.rows(); f++) {
@@ -346,6 +353,7 @@ void computeNormalizedTemperatureGradient(HalfedgeDS he) {
 			NormalizedTemperatureGradient.row(f).normalize();
 		CenterOfFaces.row(f) = (V.row(i) + V.row(j) + V.row(k)) / 3;
 	}
+	
 	auto finish = std::chrono::high_resolution_clock::now();
 	std::chrono::duration<double> elapsed = finish - start;
 	std::cout << "Computing time for NormalizedTemperatureGradient and CenterOfFaces: " << elapsed.count() << " s\n";
@@ -356,7 +364,8 @@ void computeNormalizedTemperatureGradient(HalfedgeDS he) {
 **/
 void computeB(HalfedgeDS he) {
 	std::cout << "Computing B..." << std::endl;
-	auto start = std::chrono::high_resolution_clock::now(); // for measuring time performances
+	auto start = std::chrono::high_resolution_clock::now();
+	
 	B = MatrixXd::Zero(he.sizeOfVertices(), 1);
 	for (int i = 0; i < he.sizeOfVertices(); i++) {
 		int vDCW = vertexDegreeCCW(he, i);
@@ -378,6 +387,7 @@ void computeB(HalfedgeDS he) {
 			f = he.getFace(nextEdge);
 		}
 	}
+	
 	auto finish = std::chrono::high_resolution_clock::now();
 	std::chrono::duration<double> elapsed = finish - start;
 	std::cout << "Computing time for B: " << elapsed.count() << " s\n";
@@ -392,7 +402,6 @@ void computeGeodesicDistance() {
 
 	SolverFinal.compute(Lc);
 	GeodesicDistance = SolverFinal.solve(B);
-
 	GeodesicDistance -= GeodesicDistance.minCoeff() * MatrixXd::Ones(V.rows(), 1);
 
 	auto finish = std::chrono::high_resolution_clock::now();
@@ -593,7 +602,7 @@ int main(int argc, char* argv[]) {
 	std::cout << "dt: " << dt << std::endl;
 	computeh();
 	std::cout << "h: " << h << std::endl;
-	computeArea(he);
+	computeBarycentricArea(he);
 	computeL(he);
 	computeSparseMatrixExplicit();
 	computeSolverImplicit();
@@ -601,13 +610,14 @@ int main(int argc, char* argv[]) {
 	// - 1000000 for sphere
 	// - 2000000 for nefertiti ?
 	// - 800 for star ?
+	
 	std::cout << "Computing steps..." << std::endl;
-	auto start = std::chrono::high_resolution_clock::now(); // for measuring time performances
-	for (int i = 0; i < nbStepsTotal; i++)
-		computeTimeStepExplicit();
+	auto start = std::chrono::high_resolution_clock::now();
+	for (int i = 0; i < nbStepsTotal; i++) computeTimeStepExplicit();
 	auto finish = std::chrono::high_resolution_clock::now();
 	std::chrono::duration<double> elapsed = finish - start;
 	std::cout << "Computing time for " << nbStepsTotal << " steps: " << elapsed.count() << " s\n";
+	
 	computeNormalizedTemperatureGradient(he);
 	computeB(he);
 	computeGeodesicDistance();
@@ -615,11 +625,11 @@ int main(int argc, char* argv[]) {
 
 	// Dijkstra method
 	ComputeDijkstra(he);
-	for (int i = 0; i < V.rows(); i++) {
+	/*for (int i = 0; i < V.rows(); i++) {
 		std::cout << "Distance to point : " << V.row(i) << std::endl;
 		std::cout << "Geodesic distance : " << GeodesicDistance.row(i);
 		std::cout << "  Dijkstra distance : " << DijkstraDistances.row(i) << std::endl;
-	}
+	}*/
 
 	cout << "GeodesicDistance.mean():      " << GeodesicDistance.mean() << endl;
 	cout << "GeodesicDistance.minCoeff():  " << GeodesicDistance.minCoeff() << endl;
@@ -643,7 +653,7 @@ int main(int argc, char* argv[]) {
 
 	///////////////////////////////////////////
 
-		// Plot the mesh with pseudocolors
+	// Plot the mesh with pseudocolors
 	igl::opengl::glfw::Viewer viewer; // create the 3d viewer
 
 	viewer.callback_key_down = &key_down;
@@ -662,6 +672,7 @@ int main(int argc, char* argv[]) {
 		"Press '9' to compute " << nbSteps << " steps (implicit)" << std::endl <<
 		"Press '0' to animate (implicit)" << std::endl <<
 		"Press 'l' to display or mask the edges" << std::endl <<
+		"Press 'r' to display the divergences of integrated temperature gradient" << std::endl <<
 		"Press 's' to display the theoretical sphere distance" << std::endl <<
 		"Press 'g' to display the directions of the gradient of temperature" << std::endl;
 
