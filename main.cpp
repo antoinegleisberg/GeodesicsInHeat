@@ -160,14 +160,10 @@ void computeAlphaBetaDdt(HalfedgeDS he) {
 			Vector3d ej(V.row(k) - V.row(i));
 			Vector3d ei(V.row(j) - V.row(k));
 			stackD.push_back(Eigen::Triplet<double>(i, j, ek.norm()));
-<<<<<<< HEAD
-			if (dt < ek.norm()) dt = ek.norm();
-=======
 			if (dt < ek.norm())
 				dt = ek.norm();
->>>>>>> 04aaeafce6671323f9171d8d8344a85681115f92
-			stackCotAlpha.push_back(Eigen::Triplet<double>(i, j, 1 / tan(acos(ei.dot(-ej) / (ej.norm() * ei.norm()))))); // angle at k
-			stackCotBeta.push_back(Eigen::Triplet<double>(i, k, 1 / tan(acos(ei.dot(-ek) / (ek.norm() * ei.norm()))))); // angle at j
+			stackCotAlpha.push_back(Eigen::Triplet<double>(i, j, 1 / tan(acos(ei.dot(-ej) / (ej.norm() + ei.norm()))))); // angle at k
+			stackCotBeta.push_back(Eigen::Triplet<double>(i, k, 1 / tan(acos(ek.dot(-ei) / (ek.norm() + ei.norm()))))); // angle at j
 			j = k;
 			nextEdge = he.getOpposite(he.getNext(nextEdge));
 			k = he.getTarget(he.getOpposite(nextEdge));
@@ -407,14 +403,7 @@ void computeGeodesicDistance() {
 
 	SolverFinal.compute(Lc);
 	GeodesicDistance = SolverFinal.solve(B);
-<<<<<<< HEAD
-	// remove the min value of the geodesic distance because it is only calculated up to a constant
-	// and smallest distance is equal to 0 (distance to start point)
 	GeodesicDistance -= GeodesicDistance.minCoeff() * MatrixXd::Ones(V.rows(), 1);
-=======
-	GeodesicDistance *= -1;
-	GeodesicDistance -= GeodesicDistance(Sources[0]) * MatrixXd::Ones(V.rows(), 1);
->>>>>>> 04aaeafce6671323f9171d8d8344a85681115f92
 
 	auto finish = std::chrono::high_resolution_clock::now();
 	std::chrono::duration<double> elapsed = finish - start;
