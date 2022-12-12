@@ -57,6 +57,7 @@ MatrixXd TheoreticalShereDistance; // Computed using the theoretical formula
 void rescale() {
 	std::cout << "Rescaling..." << std::endl;
 	auto start = std::chrono::high_resolution_clock::now();
+
 	VectorXd minV = V.colwise().minCoeff();
 	VectorXd maxV = V.colwise().maxCoeff();
 	VectorXd range = maxV - minV;
@@ -64,6 +65,7 @@ void rescale() {
 	for (int i = 0; i < 3; i++) {
 		V.col(i) = V.col(i) / range(i);
 	}
+
 	auto finish = std::chrono::high_resolution_clock::now();
 	std::chrono::duration<double> elapsed = finish - start;
 	std::cout << "Computing time for rescaling: " << elapsed.count() << " s\n";
@@ -96,6 +98,7 @@ int vertexDegreeCCW(HalfedgeDS he, int v) {
 void ComputeDijkstra(HalfedgeDS he) {
 	std::cout << "Computing Dijkstra method..." << std::endl;
 	auto start = std::chrono::high_resolution_clock::now(); // for measuring time performances
+
 	DijkstraDistances = VectorXd::Constant(he.sizeOfVertices(), std::numeric_limits<double>::infinity());
 	for (int i = 0; i < nbSources; i++) DijkstraDistances(Sources[i]) = 0;
 	int* queue = new int[he.sizeOfHalfedges()];
@@ -121,6 +124,7 @@ void ComputeDijkstra(HalfedgeDS he) {
 			edge = he.getOpposite(he.getNext(edge));
 		} while (edge != he.getEdge(v));
 	}
+
 	auto finish = std::chrono::high_resolution_clock::now();
 	std::chrono::duration<double> elapsed = finish - start;
 	std::cout << "Computing time for Dijkstra method: " << elapsed.count() << " s\n";
@@ -141,6 +145,7 @@ void setInitialTemperature() {
 void computeAlphaBetaDdt(HalfedgeDS he) {
 	std::cout << "Computing CotAlpha, CotBeta, Distances and dt..." << std::endl;
 	auto start = std::chrono::high_resolution_clock::now();
+
 	std::vector<Eigen::Triplet<double>> stackCotAlpha{};
 	std::vector<Eigen::Triplet<double>> stackCotBeta{};
 	std::vector<Eigen::Triplet<double>> stackD{};
@@ -157,8 +162,8 @@ void computeAlphaBetaDdt(HalfedgeDS he) {
 			stackD.push_back(Eigen::Triplet<double>(i, j, ek.norm()));
 			if (dt < ek.norm())
 				dt = ek.norm();
-			stackCotAlpha.push_back(Eigen::Triplet<double>(i, j, 1 / tan(acos(ei.dot(-ej) / (ej.norm() + ei.norm()))))); // angle at k
-			stackCotBeta.push_back(Eigen::Triplet<double>(i, k, 1 / tan(acos(ek.dot(-ei) / (ek.norm() + ei.norm()))))); // angle at j
+			stackCotAlpha.push_back(Eigen::Triplet<double>(i, j, 1 / tan(acos(ei.dot(-ej) / (ej.norm() * ei.norm()))))); // angle at k
+			stackCotBeta.push_back(Eigen::Triplet<double>(i, k, 1 / tan(acos(ei.dot(-ek) / (ek.norm() * ei.norm()))))); // angle at j
 			j = k;
 			nextEdge = he.getOpposite(he.getNext(nextEdge));
 			k = he.getTarget(he.getOpposite(nextEdge));
@@ -197,6 +202,7 @@ void computeh() {
 void computeVoronoiArea(HalfedgeDS he) {
 	std::cout << "Computing A (Voronoï)..." << std::endl;
 	auto start = std::chrono::high_resolution_clock::now();
+
 	A = MatrixXd::Zero(he.sizeOfVertices(), 1);
 	for (int i = 0; i < he.sizeOfVertices(); i++) {
 		int vDCW = vertexDegreeCCW(he, i);
@@ -209,6 +215,7 @@ void computeVoronoiArea(HalfedgeDS he) {
 		}
 		A(i) /= 8;
 	}
+
 	auto finish = std::chrono::high_resolution_clock::now();
 	std::chrono::duration<double> elapsed = finish - start;
 	std::cout << "Computing time for A (Voronoï): " << elapsed.count() << " s\n";
@@ -220,6 +227,7 @@ void computeVoronoiArea(HalfedgeDS he) {
 void computeBarycentricArea(HalfedgeDS he) {
 	std::cout << "Computing A..." << std::endl;
 	auto start = std::chrono::high_resolution_clock::now();
+
 	A = MatrixXd::Zero(he.sizeOfVertices(), 1);
 	for (int i = 0; i < he.sizeOfVertices(); i++) {
 		double vertexArea = 0;
@@ -238,18 +246,19 @@ void computeBarycentricArea(HalfedgeDS he) {
 		} while (edge1 != he.getEdge(i));
 		A(i) = vertexArea;
 	}
+
 	auto finish = std::chrono::high_resolution_clock::now();
 	std::chrono::duration<double> elapsed = finish - start;
 	std::cout << "Computing time for A: " << elapsed.count() << " s\n";
 }
 
 /**
-* Compute L
+* Compute Lc
 **/
 void computeL(HalfedgeDS he) {
-	std::cout << "Computing L..." << std::endl;
+	std::cout << "Computing Lc..." << std::endl;
 	auto start = std::chrono::high_resolution_clock::now();
-	
+
 	std::vector<Eigen::Triplet<double>> stackL{};
 	for (int i = 0; i < he.sizeOfVertices(); i++) {
 		int vDCW = vertexDegreeCCW(he, i);
@@ -267,10 +276,10 @@ void computeL(HalfedgeDS he) {
 	}
 	Lc = SparseMatrix<double>(he.sizeOfVertices(), he.sizeOfVertices());
 	Lc.setFromTriplets(stackL.begin(), stackL.end());
-	
+
 	auto finish = std::chrono::high_resolution_clock::now();
 	std::chrono::duration<double> elapsed = finish - start;
-	std::cout << "Computing time for L: " << elapsed.count() << " s\n";
+	std::cout << "Computing time for Lc: " << elapsed.count() << " s\n";
 }
 
 /**
@@ -386,6 +395,7 @@ void computeB(HalfedgeDS he) {
 			f = he.getFace(nextEdge);
 		}
 	}
+
 	auto finish = std::chrono::high_resolution_clock::now();
 	std::chrono::duration<double> elapsed = finish - start;
 	std::cout << "Computing time for B: " << elapsed.count() << " s\n";
@@ -400,7 +410,8 @@ void computeGeodesicDistance() {
 
 	SolverFinal.compute(Lc);
 	GeodesicDistance = SolverFinal.solve(B);
-	GeodesicDistance -= GeodesicDistance.minCoeff() * MatrixXd::Ones(V.rows(), 1);
+	GeodesicDistance *= -1;
+	GeodesicDistance -= GeodesicDistance(Sources[0]) * MatrixXd::Ones(V.rows(), 1);
 
 	auto finish = std::chrono::high_resolution_clock::now();
 	std::chrono::duration<double> elapsed = finish - start;
@@ -469,7 +480,7 @@ bool key_down(igl::opengl::glfw::Viewer& viewer, unsigned char key, int modifier
 	case '1':
 	{
 		MatrixXd C;
-		igl::jet(GeodesicDistance, true, C); // Assign per-vertex colors
+		igl::jet(-GeodesicDistance, true, C); // Assign per-vertex colors
 		viewer.data().set_colors(C); // Add per-vertex colors
 		return true;
 	}
@@ -638,12 +649,14 @@ int main(int argc, char* argv[]) {
 	// Dijkstra method
 	ComputeDijkstra(he);
 
-	/*for (int i = 0; i < V.rows(); i++) {
+	/*
+	for (int i = 0; i < V.rows(); i++) {
 		std::cout << "Distance to point : " << V.row(i) << std::endl;
 		std::cout << "Geodesic distance : " << GeodesicDistance.row(i);
 		std::cout << "  Dijkstra distance : " << DijkstraDistances.row(i) << std::endl;
-	}*/
-
+	}
+	*/
+	
 	/*
 	cout << "GeodesicDistance.mean():      " << GeodesicDistance.mean() << endl;
 	cout << "GeodesicDistance.minCoeff():  " << GeodesicDistance.minCoeff() << endl;
@@ -653,23 +666,30 @@ int main(int argc, char* argv[]) {
 	cout << "DijkstraDistances.minCoeff():  " << DijkstraDistances.minCoeff() << endl;
 	cout << "DijkstraDistances.maxCoeff():  " << DijkstraDistances.maxCoeff() << endl;
 	*/
-
+	
 	auto totalfinish = std::chrono::high_resolution_clock::now();
 	std::chrono::duration<double> totalelapsed = totalfinish - totalstart;
 	std::cout << "Total computing time from the loading of the data to the obtention of the geodesic distance:" << totalelapsed.count() << " s\n";
 	std::cout << "Including computing time for a total of " << nbStepsTotal << " steps of heat diffusion: " << elapsed.count() << " s\n";
 	std::cout << "On a mesh of " << V.rows() << " points" << std::endl;
 
+	///////////////////////////////////////////
+
+	// To comment if the mesh is not the sphere
+
 	// Theoretical sphere distance
 	TheoreticalSphereDistance();
 
-	// MAE on the sphere ; to comment if the mesh is not the sphere
+	GeodesicDistance *= TheoreticalShereDistance.maxCoeff() / GeodesicDistance.maxCoeff();
+	DijkstraDistances *= TheoreticalShereDistance.maxCoeff() / DijkstraDistances.maxCoeff();
+
+	// MAE on the sphere
 	MAESphere();
+
+	///////////////////////////////////////////
 
 	// Compute per-vertex normals
 	igl::per_vertex_normals(V, F, N_vertices);
-
-	///////////////////////////////////////////
 
 	// Plot the mesh with pseudocolors
 	igl::opengl::glfw::Viewer viewer; // create the 3d viewer
