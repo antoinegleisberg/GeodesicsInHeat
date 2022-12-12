@@ -155,10 +155,9 @@ void computeAlphaBetaDdt(HalfedgeDS he) {
 			Vector3d ej(V.row(k) - V.row(i));
 			Vector3d ei(V.row(j) - V.row(k));
 			stackD.push_back(Eigen::Triplet<double>(i, j, ek.norm()));
-			if (dt < ek.norm())
-				dt = ek.norm();
-			stackCotAlpha.push_back(Eigen::Triplet<double>(i, j, 1 / tan(acos(ei.dot(-ej) / (ej.norm() + ei.norm()))))); // angle at k
-			stackCotBeta.push_back(Eigen::Triplet<double>(i, k, 1 / tan(acos(ek.dot(-ei) / (ek.norm() + ei.norm()))))); // angle at j
+			if (dt < ek.norm()) dt = ek.norm();
+			stackCotAlpha.push_back(Eigen::Triplet<double>(i, j, 1 / tan(acos(ei.dot(-ej) / (ej.norm() * ei.norm()))))); // angle at k
+			stackCotBeta.push_back(Eigen::Triplet<double>(i, k, 1 / tan(acos(ei.dot(-ek) / (ek.norm() * ei.norm()))))); // angle at j
 			j = k;
 			nextEdge = he.getOpposite(he.getNext(nextEdge));
 			k = he.getTarget(he.getOpposite(nextEdge));
@@ -180,15 +179,8 @@ void computeAlphaBetaDdt(HalfedgeDS he) {
 * Compute h as the mean of the edge lengths
 **/
 void computeh() {
-	std::cout << "Computing h..." << std::endl;
-	auto start = std::chrono::high_resolution_clock::now();
-	
 	if (Distances.nonZeros() == 0) h = 0;
 	else h = Distances.sum() / Distances.nonZeros();
-	
-	auto finish = std::chrono::high_resolution_clock::now();
-	std::chrono::duration<double> elapsed = finish - start;
-	std::cout << "Computing time for h: " << elapsed.count() << " s\n";
 }
 
 /**
@@ -244,7 +236,7 @@ void computeBarycentricArea(HalfedgeDS he) {
 }
 
 /**
-* Compute L
+* Compute Lc
 **/
 void computeL(HalfedgeDS he) {
 	std::cout << "Computing L..." << std::endl;
@@ -400,6 +392,8 @@ void computeGeodesicDistance() {
 
 	SolverFinal.compute(Lc);
 	GeodesicDistance = SolverFinal.solve(B);
+	// remove the min value of the geodesic distance because it is only calculated up to a constant
+	// and smallest distance is equal to 0 (distance to start point)
 	GeodesicDistance -= GeodesicDistance.minCoeff() * MatrixXd::Ones(V.rows(), 1);
 
 	auto finish = std::chrono::high_resolution_clock::now();
@@ -627,6 +621,7 @@ int main(int argc, char* argv[]) {
 	std::cout << "Computing steps..." << std::endl;
 	auto start = std::chrono::high_resolution_clock::now();
 	for (int i = 0; i < nbStepsTotal; i++) computeTimeStepExplicit();
+	// for (int i = 0; i < nbStepsTotal; i++) computeTimeStepImplicit();
 	auto finish = std::chrono::high_resolution_clock::now();
 	std::chrono::duration<double> elapsed = finish - start;
 	std::cout << "Computing time for " << nbStepsTotal << " steps: " << elapsed.count() << " s\n";
