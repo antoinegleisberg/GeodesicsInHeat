@@ -51,6 +51,21 @@ MatrixXd N_vertices; // Computed calling pre-defined functions of LibiGL
 
 MatrixXd TheoreticalShereDistance; // Computed using the theoretical formula
 
+void Subdivise(MatrixXd& V, MatrixXi& F) {
+	MatrixXd V1 = MatrixXd::Zero(V.rows() + F.rows(), 3);
+	MatrixXi F1 = MatrixXi::Zero(3 * F.rows(), 3);
+	for (int i = 0; i < V.rows(); i++)
+		V1.row(i) = V.row(i);
+	for (int i = 0; i < F.rows(); i++) {
+		int j = V.rows() + i;
+		V1.row(j) = (V.row(F(i, 0)) + V.row(F(i, 1)) + V.row(F(i, 2))) / 3;
+		F1.row(3 * i + 0) << F(i, 0), F(i, 1), j;
+		F1.row(3 * i + 1) << F(i, 1), F(i, 2), j;
+		F1.row(3 * i + 2) << F(i, 2), F(i, 0), j;
+	}
+	V = V1;
+	F = F1;
+}
 
 void GenerateCubeMesh(MatrixXd& V, MatrixXi& F, int nbSubdivisions) {
 	V = MatrixXd::Zero(8, 3);
@@ -698,8 +713,18 @@ int main(int argc, char* argv[]) {
 	//igl::readOFF("../data/twisted.off", V, F);	// 0 boundary -> WORKS !
 	//igl::readOFF("../data/output.off", V, F);		// 0 boundary -> WORKS !
 
+	/*
 	// Replace the OFF mesh with a cube
-	// GenerateCubeMesh(V, F, 0);
+	GenerateCubeMesh(V, F, 1);
+	for (int f = 0; f < F.rows(); f++) {
+		float temp = F(f, 2);
+		F(f, 2) = F(f, 1);
+		F(f, 1) = temp;
+	}
+	*/
+
+	// To subdivise naively the mesh
+	Subdivise(V, F);
 
 	//print the number of mesh elements
 	std::cout << "Points: " << V.rows() << std::endl;
@@ -763,6 +788,7 @@ int main(int argc, char* argv[]) {
 	std::cout << "Including computing time for a total of " << nbStepsTotal << " steps of heat diffusion: " << elapsed.count() << " s\n";
 	std::cout << "On a mesh of " << V.rows() << " points" << std::endl;
 
+	/*
 	///////////////////////////////////////////
 
 	// To comment if the mesh is not the sphere
@@ -777,6 +803,7 @@ int main(int argc, char* argv[]) {
 	MAESphere();
 
 	///////////////////////////////////////////
+	*/
 
 	// Compute per-vertex normals
 	igl::per_vertex_normals(V, F, N_vertices);
