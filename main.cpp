@@ -4,10 +4,6 @@
 // They are related to the sources, the number of steps, and the mesh,
 // and located at the very start of the code, before the definitions of functions,
 // and in the main function.
-// 
-// We recommend trying the sphere mesh (by default),
-// and then to comment the additionnal part on the sphere,
-// choose the cube mesh created by us, and the change of Sources.
 
 /************************************************************************************************************/
 
@@ -40,7 +36,7 @@ MatrixXd N_vertices; // Computed calling pre-defined functions of LibiGL
 // Parameters you can change
 
 const int nbSources = 1; // Number of sources of heat
-int Sources[nbSources] = { 9 }; // Sources of heat
+int Sources[nbSources] = { 0 }; // Sources of heat
 
 // Choose this version if you want to see the anisotropia on the cube mesh :
 /*
@@ -57,10 +53,10 @@ int Sources[nbSources] = { 9 }; // Sources of heat
 
 /************************************************************************************************************/
 //
-// Parameters you can change
+// Parameter you can change
 
 int nbSteps = 1000; // Number of time steps between animations
-int nbStepsTotal = 40000; // Total number of time steps
+int nbMaxSteps = 40000; // Maximum number of time steps
 
 /************************************************************************************************************/
 
@@ -173,8 +169,8 @@ void computeAlphaBetaDdt(HalfedgeDS he) {
 			stackD.push_back(Eigen::Triplet<double>(i, j, ek.norm()));
 			if (dt < ek.norm())
 				dt = ek.norm();
-			stackCotAlpha.push_back(Eigen::Triplet<double>(i, j, 1 / tan(acos(ei.dot(-ej) / (ej.norm() + ei.norm()))))); // angle at k
-			stackCotBeta.push_back(Eigen::Triplet<double>(i, k, 1 / tan(acos(ei.dot(-ek) / (ek.norm() + ei.norm()))))); // angle at j
+			stackCotAlpha.push_back(Eigen::Triplet<double>(i, j, 1 / tan(acos(ei.dot(-ej) / (ej.norm() * ei.norm()))))); // angle at k
+			stackCotBeta.push_back(Eigen::Triplet<double>(i, k, 1 / tan(acos(ei.dot(-ek) / (ek.norm() * ei.norm()))))); // angle at j
 			j = k;
 			nextEdge = he.getOpposite(he.getNext(nextEdge));
 			k = he.getTarget(he.getOpposite(nextEdge));
@@ -762,8 +758,8 @@ int main(int argc, char* argv[]) {
 	//igl::readOFF(argv[1], V, F);
 
 	// Meshes without a boundary
-	igl::readOFF("../data/sphere.off", V, F);		// 0 boundary
-	//igl::readOFF("../data/bunny.off", V, F);		// 0 boundary
+	igl::readOFF("../data/bunny.off", V, F);		// 0 boundary
+	//igl::readOFF("../data/sphere.off", V, F);		// 0 boundary
 	//igl::readOFF("../data/twisted.off", V, F);	// 0 boundary
 	//igl::readOFF("../data/output.off", V, F);		// 0 boundary
 	//igl::readOFF("../data/high_genus.off", V, F);	// 0 boundary
@@ -829,11 +825,24 @@ int main(int argc, char* argv[]) {
 	computeSolverImplicit();
 	std::cout << "Computing steps..." << std::endl;
 	auto start = std::chrono::high_resolution_clock::now();
-	for (int i = 0; i < nbStepsTotal; i++) computeTimeStepExplicit();
-	// for (int i = 0; i < nbStepsTotal; i++) computeTimeStepImplicit();
+	MatrixXd OldTemperature = Temperature;
+	int nbStepsComputed = 1;
+	/************************************************************************************************************/
+	computeTimeStepExplicit();
+	//computeTimeStepImplicit();
+	/************************************************************************************************************/
+	while (Temperature(Sources[0]) == Temperature.maxCoeff() && nbStepsComputed < nbMaxSteps)
+		{
+			OldTemperature = Temperature;
+			/************************************************************************************************************/
+			computeTimeStepExplicit();
+			//computeTimeStepImplicit();
+			/************************************************************************************************************/
+			nbStepsComputed++;
+		}
 	auto finish = std::chrono::high_resolution_clock::now();
 	std::chrono::duration<double> elapsed = finish - start;
-	std::cout << "Computing time for " << nbStepsTotal << " steps: " << elapsed.count() << " s\n";
+	std::cout << "Computing time for " << nbStepsComputed << " steps: " << elapsed.count() << " s\n";
 	computeNormalizedTemperatureGradient(he);
 	computeB(he);
 	computeGeodesicDistance();
@@ -841,12 +850,11 @@ int main(int argc, char* argv[]) {
 	auto totalfinish = std::chrono::high_resolution_clock::now();
 	std::chrono::duration<double> totalelapsed = totalfinish - totalstart;
 	std::cout << "Total computing time from the heat method:" << totalelapsed.count() << " s\n";
-	std::cout << "Including computing time for a total of " << nbStepsTotal << " steps of heat diffusion: " << elapsed.count() << " s\n";
+	std::cout << "Including computing time for a total of " << nbStepsComputed << " steps of heat diffusion: " << elapsed.count() << " s\n";
 	std::cout << "On a mesh of " << V.rows() << " points" << std::endl;
 
 	// Dijkstra method
 	ComputeDijkstra(he);
-
 
 	/************************************************************************************************************/
 	//
